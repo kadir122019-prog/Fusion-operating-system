@@ -1,0 +1,14 @@
+# Build output
+build/
+*.o
+*.elf
+*.iso
+
+# Bootloader / generated binaries
+iso_root/
+kernel.elf
+kernel.o
+limine*.bin
+
+# EFI binaries
+*.EFI

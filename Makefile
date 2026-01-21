@@ -1,33 +1,36 @@
-.PHONY: all clean run
+# Fusion OS Build System
+include config.mk
 
-CC = gcc
-LD = ld
-CFLAGS = -Wall -Wextra -O2 -pipe -ffreestanding -fno-stack-protector -fno-stack-check \
-         -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mno-80387 -mno-mmx -mno-sse -mno-sse2 \
-         -mno-red-zone -mcmodel=kernel -I.
-LDFLAGS = -T linker.ld -nostdlib -zmax-page-size=0x1000 -static -no-pie --no-dynamic-linker -ztext
+# Source files
+C_SOURCES := $(wildcard $(SRCDIR)/*.c)
+OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES))
 
-KERNEL = kernel.elf
-ISO = fusion.iso
-LIMINE_DIR = limine-8.4.0
+.PHONY: all clean distclean run limine setup
 
-all: $(ISO)
+all: setup $(ISO)
+	@echo "$(COLOR_GREEN)✓ Fusion OS built successfully!$(COLOR_RESET)"
 
-kernel.o: kernel.c limine.h
-	$(CC) $(CFLAGS) -c kernel.c -o kernel.o
+setup:
+	@mkdir -p $(BUILDDIR)
+	@mkdir -p $(BOOTDIR)
 
-$(KERNEL): kernel.o
-	$(LD) $(LDFLAGS) kernel.o -o $(KERNEL)
+$(BUILDDIR)/%.o: $(SRCDIR)/%.c
+	@echo "$(COLOR_BLUE)[CC]$(COLOR_RESET) $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(KERNEL): $(OBJECTS)
+	@echo "$(COLOR_YELLOW)[LD]$(COLOR_RESET) $@"
+	@$(LD) $(LDFLAGS) $(OBJECTS) -o $@
 
 limine:
 	@if [ ! -d "$(LIMINE_DIR)" ]; then \
-		echo "Downloading Limine binary release..."; \
+		echo "$(COLOR_YELLOW)Downloading Limine...$(COLOR_RESET)"; \
 		curl -Lo limine.tar.gz https://github.com/limine-bootloader/limine/releases/download/v8.4.0/limine-8.4.0.tar.gz; \
 		tar -xzf limine.tar.gz; \
 		rm limine.tar.gz; \
 	fi
 	@if [ ! -f "$(LIMINE_DIR)/limine-uefi-cd.bin" ]; then \
-		echo "Downloading pre-built Limine binaries..."; \
+		echo "$(COLOR_YELLOW)Downloading Limine binaries...$(COLOR_RESET)"; \
 		cd $(LIMINE_DIR) && \
 		curl -Lo limine-uefi-cd.bin https://github.com/limine-bootloader/limine/raw/v8.x-binary/limine-uefi-cd.bin && \
 		curl -Lo limine-bios-cd.bin https://github.com/limine-bootloader/limine/raw/v8.x-binary/limine-bios-cd.bin && \
@@ -35,27 +38,49 @@ limine:
 		curl -Lo BOOTX64.EFI https://github.com/limine-bootloader/limine/raw/v8.x-binary/BOOTX64.EFI && \
 		curl -Lo BOOTIA32.EFI https://github.com/limine-bootloader/limine/raw/v8.x-binary/BOOTIA32.EFI; \
 	fi
+	@if [ ! -f "limine.h" ]; then \
+		echo "$(COLOR_YELLOW)Downloading limine.h...$(COLOR_RESET)"; \
+		curl -Lo limine.h https://raw.githubusercontent.com/limine-bootloader/limine/v8.x-binary/limine.h; \
+	fi
 
 $(ISO): $(KERNEL) limine
-	rm -rf iso_root
-	mkdir -p iso_root/boot iso_root/boot/limine iso_root/EFI/BOOT
-	cp $(KERNEL) iso_root/boot/
-	cp limine.cfg iso_root/boot/limine/
-	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
+	@echo "$(COLOR_GREEN)[ISO]$(COLOR_RESET) Creating bootable ISO..."
+	@rm -rf iso_root
+	@mkdir -p iso_root/boot iso_root/boot/limine iso_root/EFI/BOOT
+	@cp $(KERNEL) iso_root/boot/
+	@cp $(BOOTDIR)/limine.cfg iso_root/boot/limine/
+	@cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/boot/limine/
-	cp $(LIMINE_DIR)/BOOTX64.EFI iso_root/EFI/BOOT/
-	xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin \
+	@cp $(LIMINE_DIR)/BOOTX64.EFI iso_root/EFI/BOOT/
+	@xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin \
 	        -no-emul-boot -boot-load-size 4 -boot-info-table \
 	        -eltorito-alt-boot -e boot/limine/limine-uefi-cd.bin -no-emul-boot \
-	        iso_root -o $(ISO)
-	@echo "ISO created successfully: $(ISO)"
+	        iso_root -o $(ISO) 2>&1 | grep -v "xorriso :" || true
+	@echo "$(COLOR_GREEN)✓ ISO created: $(ISO)$(COLOR_RESET)"
 
 run: $(ISO)
-	qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial stdio -bios /usr/share/ovmf/x64/OVMF.fd
+	@echo "$(COLOR_BLUE)Starting QEMU...$(COLOR_RESET)"
+	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial stdio
 
 clean:
-	rm -f kernel.o $(KERNEL) $(ISO)
-	rm -rf iso_root
+	@echo "$(COLOR_YELLOW)Cleaning build artifacts...$(COLOR_RESET)"
+	@rm -f $(OBJECTS) $(KERNEL) $(ISO)
+	@rm -rf iso_root $(BUILDDIR)
 
 distclean: clean
-	rm -rf $(LIMINE_DIR)
+	@echo "$(COLOR_YELLOW)Removing Limine...$(COLOR_RESET)"
+	@rm -rf $(LIMINE_DIR) limine.h
+
+info:
+	@echo "$(COLOR_BLUE)=== Fusion OS Build Information ===$(COLOR_RESET)"
+	@echo "Kernel:  $(KERNEL)"
+	@echo "ISO:     $(ISO)"
+	@echo "Sources: $(C_SOURCES)"
+	@echo "Objects: $(OBJECTS)"
+	@echo ""
+	@echo "$(COLOR_GREEN)Available targets:$(COLOR_RESET)"
+	@echo "  all       - Build everything (default)"
+	@echo "  clean     - Remove build artifacts"
+	@echo "  distclean - Remove everything including Limine"
+	@echo "  run       - Build and run in QEMU"
+	@echo "  info      - Show this information"
