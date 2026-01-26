@@ -8,6 +8,7 @@
 #include "cpu.h"
 #include "net.h"
 #include "browser.h"
+#include "interrupts.h"
 
 #define MAX_WINDOWS 8
 #define BORDER_SIZE 2
@@ -52,6 +53,8 @@ typedef struct {
     int idle_fps;
     int cursor_size;
     int theme_index;
+    int double_buffer;
+    int debug_overlay;
 } settings_t;
 
 typedef struct {
@@ -108,7 +111,7 @@ static const theme_t themes[] = {
     {0x090A0C, 0x0E1115, 0x14171B, 0x2A2F35, 0x1D2228, 0x4A6F6A, 0x4A6F6A, 0x2D3238, 0x1B1F24, 0x0F1113, 0xE3E5E8, 0x9AA1A8, 0x66C7BF}
 };
 
-static settings_t settings = {40, 0, 0};
+static settings_t settings = {40, 0, 0, 1, 0};
 
 static const app_entry_t apps[] = {
     {"Terminal", APP_TERMINAL},
@@ -121,6 +124,7 @@ static const app_entry_t apps[] = {
 static int launcher_matches(const char *name);
 static void launcher_layout(int *lx, int *ly, int *lw, int *lh,
                             int *list_y, int *list_bottom, int *button_y);
+static const theme_t *current_theme(void);
 
 static int theme_count(void) {
     return (int)(sizeof(themes) / sizeof(themes[0]));
@@ -149,6 +153,51 @@ static void u64_to_dec(char *out, int max, u64 value) {
 
 static int text_width(const char *s) {
     return (int)strlen(s) * FONT_WIDTH;
+}
+
+static void draw_debug_overlay(u32 fps) {
+    if (!settings.debug_overlay) return;
+    const theme_t *theme = current_theme();
+    int x = 8;
+    int y = 8;
+    int w = 220;
+    int h = 92;
+    gfx_draw_rect(x, y, w, h, theme->panel);
+    gfx_draw_rect(x, y, w, 1, theme->panel_border);
+    gfx_draw_text("Debug", x + 8, y + 6, theme->accent);
+
+    char buf[32];
+    int line = y + 24;
+    gfx_draw_text("FPS:", x + 8, line, theme->text_muted);
+    u64_to_dec(buf, (int)sizeof(buf), fps);
+    gfx_draw_text(buf, x + 60, line, theme->text);
+    line += FONT_HEIGHT;
+
+    gfx_draw_text("Ticks:", x + 8, line, theme->text_muted);
+    u64_to_dec(buf, (int)sizeof(buf), ticks);
+    gfx_draw_text(buf, x + 60, line, theme->text);
+    line += FONT_HEIGHT;
+
+    gfx_draw_text("IRQ0:", x + 8, line, theme->text_muted);
+    u64_to_dec(buf, (int)sizeof(buf), interrupts_get_irq_count(0));
+    gfx_draw_text(buf, x + 60, line, theme->text);
+    line += FONT_HEIGHT;
+
+    gfx_draw_text("IRQ1:", x + 8, line, theme->text_muted);
+    u64_to_dec(buf, (int)sizeof(buf), interrupts_get_irq_count(1));
+    gfx_draw_text(buf, x + 60, line, theme->text);
+
+    u64 total_mb = (pmm_total_pages * 4096) / (1024 * 1024);
+    u64 free_mb = (pmm_free_pages * 4096) / (1024 * 1024);
+    char mem_buf[32];
+    int mem_y = y + h - FONT_HEIGHT - 6;
+    mem_buf[0] = 0;
+    u64_to_dec(mem_buf, (int)sizeof(mem_buf), free_mb);
+    gfx_draw_text("Free:", x + 8, mem_y, theme->text_muted);
+    gfx_draw_text(mem_buf, x + 60, mem_y, theme->text);
+    u64_to_dec(mem_buf, (int)sizeof(mem_buf), total_mb);
+    gfx_draw_text("/", x + 108, mem_y, theme->text_muted);
+    gfx_draw_text(mem_buf, x + 120, mem_y, theme->text);
 }
 
 static void launcher_layout(int *lx, int *ly, int *lw, int *lh,
@@ -214,6 +263,30 @@ static void desktop_focus_next(int dir) {
             return;
         }
     }
+}
+
+static void desktop_snap_window(window_t *win, int mode) {
+    if (!win) return;
+    int screen_w = (int)gfx_width();
+    int screen_h = (int)gfx_height() - PANEL_HEIGHT;
+    if (mode == 0) { // maximize
+        win->x = 0;
+        win->y = 0;
+        win->w = screen_w;
+        win->h = screen_h;
+    } else if (mode == 1) { // left
+        win->x = 0;
+        win->y = 0;
+        win->w = screen_w / 2;
+        win->h = screen_h;
+    } else if (mode == 2) { // right
+        win->x = screen_w / 2;
+        win->y = 0;
+        win->w = screen_w - win->x;
+        win->h = screen_h;
+    }
+    if (win->w < MIN_WIN_W) win->w = MIN_WIN_W;
+    if (win->h < MIN_WIN_H) win->h = MIN_WIN_H;
 }
 
 static void desktop_create_window(app_type_t type) {
@@ -412,6 +485,10 @@ static void apply_cursor_settings(void) {
     }
 }
 
+static void apply_buffer_settings(void) {
+    gfx_enable_backbuffer(settings.double_buffer ? 1 : 0);
+}
+
 static int settings_handle_click(window_t *win, int mx, int my) {
     int cx, cy, cw, ch;
     window_content_bounds(win, &cx, &cy, &cw, &ch);
@@ -436,6 +513,19 @@ static int settings_handle_click(window_t *win, int mx, int my) {
     if (point_in_rect(mx, my, sx + 90, sy - 2, 80, FONT_HEIGHT + 4)) {
         int count = theme_count();
         settings.theme_index = (settings.theme_index + 1) % count;
+        return 1;
+    }
+    sy += FONT_HEIGHT + 10;
+
+    if (point_in_rect(mx, my, sx + 90, sy - 2, 80, FONT_HEIGHT + 4)) {
+        settings.double_buffer = settings.double_buffer ? 0 : 1;
+        apply_buffer_settings();
+        return 1;
+    }
+    sy += FONT_HEIGHT + 10;
+
+    if (point_in_rect(mx, my, sx + 90, sy - 2, 80, FONT_HEIGHT + 4)) {
+        settings.debug_overlay = settings.debug_overlay ? 0 : 1;
         return 1;
     }
     return 0;
@@ -495,6 +585,16 @@ static void draw_window(window_t *win) {
         else if (idx == 2) theme_name = "Teal";
         else if (idx == 3) theme_name = "Dark";
         gfx_draw_text(theme_name, sx + 100, sy, theme->text);
+        sy += FONT_HEIGHT + 10;
+
+        gfx_draw_text("Backbuffer:", sx, sy, theme->text);
+        gfx_draw_rect(sx + 90, sy - 2, 80, FONT_HEIGHT + 4, theme->panel_item);
+        gfx_draw_text(settings.double_buffer ? "On" : "Off", sx + 110, sy, theme->text);
+        sy += FONT_HEIGHT + 10;
+
+        gfx_draw_text("Debug HUD:", sx, sy, theme->text);
+        gfx_draw_rect(sx + 90, sy - 2, 80, FONT_HEIGHT + 4, theme->panel_item);
+        gfx_draw_text(settings.debug_overlay ? "On" : "Off", sx + 110, sy, theme->text);
     } else if (win->type == APP_ABOUT) {
         int sx = cx + 12;
         int sy = cy + 12;
@@ -754,6 +854,7 @@ void desktop_init(void) {
     launcher_open = 0;
     launcher_reset_query();
     apply_cursor_settings();
+    apply_buffer_settings();
     desktop_create_window(APP_TERMINAL);
 }
 
@@ -761,6 +862,12 @@ void desktop_loop(void) {
     u64 last_tick = 0;
     u64 last_uptime = uptime_seconds;
     u32 idle_accum = 0;
+    u64 fps_last_tick = ticks;
+    u32 fps_frames = 0;
+    u32 fps_value = 0;
+    u64 overlay_last_tick = ticks;
+    int overlay_dirty = 0;
+    u64 net_last_tick = 0;
 
     int dirty_full = 1;
     int dirty_panel = 1;
@@ -768,12 +875,20 @@ void desktop_loop(void) {
     int cursor_dirty = 1;
     while (1) {
         int activity = 0;
+        if (ticks != net_last_tick) {
+            net_poll();
+            net_last_tick = ticks;
+        }
+        if (settings.debug_overlay && (ticks - overlay_last_tick) >= PIT_HZ) {
+            overlay_last_tick = ticks;
+            overlay_dirty = 1;
+        }
 
         key_event_t key;
         while (input_poll_key(&key)) {
-            if (key.pressed && key.keycode == KEY_TAB && input_is_alt_down()) {
-                int dir = input_is_shift_down() ? -1 : 1;
-                desktop_focus_next(dir);
+            if (key.pressed && key.keycode == KEY_WIN) {
+                launcher_open = !launcher_open;
+                if (launcher_open) launcher_reset_query();
                 dirty_full = 1;
                 dirty_panel = 1;
                 cursor_dirty = 1;
@@ -781,9 +896,9 @@ void desktop_loop(void) {
                 continue;
             }
 
-            if (key.pressed && key.keycode == KEY_WIN) {
-                launcher_open = !launcher_open;
-                if (launcher_open) launcher_reset_query();
+            if (key.pressed && key.keycode == KEY_TAB && input_is_alt_down()) {
+                int dir = input_is_shift_down() ? -1 : 1;
+                desktop_focus_next(dir);
                 dirty_full = 1;
                 dirty_panel = 1;
                 cursor_dirty = 1;
@@ -848,6 +963,38 @@ void desktop_loop(void) {
                 continue;
             }
 
+            if (key.pressed && input_is_alt_down()) {
+                if (key.keycode == KEY_ENTER) {
+                    desktop_create_window(APP_TERMINAL);
+                } else if (key.keycode == KEY_LEFT) {
+                    if (active_index >= 0) desktop_snap_window(&windows[active_index], 1);
+                } else if (key.keycode == KEY_RIGHT) {
+                    if (active_index >= 0) desktop_snap_window(&windows[active_index], 2);
+                } else if (key.keycode == KEY_UP) {
+                    if (active_index >= 0) desktop_snap_window(&windows[active_index], 0);
+                } else if (key.ascii == 'f' || key.ascii == 'F') {
+                    desktop_create_window(APP_FILES);
+                } else if (key.ascii == 'b' || key.ascii == 'B') {
+                    desktop_create_window(APP_BROWSER);
+                } else if (key.ascii == 's' || key.ascii == 'S') {
+                    desktop_create_window(APP_SETTINGS);
+                } else if (key.ascii == 'a' || key.ascii == 'A') {
+                    desktop_create_window(APP_ABOUT);
+                } else if (key.ascii == 'q' || key.ascii == 'Q') {
+                    if (active_index >= 0) desktop_close_window(active_index);
+                } else if (key.ascii == 'm' || key.ascii == 'M') {
+                    if (active_index >= 0) windows[active_index].minimized = 1;
+                } else {
+                    goto handle_active;
+                }
+                dirty_full = 1;
+                dirty_panel = 1;
+                cursor_dirty = 1;
+                activity = 1;
+                continue;
+            }
+
+handle_active:
             if (active_index >= 0) {
                 window_t *win = &windows[active_index];
                 if (win->type == APP_FILES) {
@@ -902,27 +1049,47 @@ void desktop_loop(void) {
             activity = 1;
         }
 
+        if (resizing_index < 0 && dragging_index < 0 && (mouse_buttons & 0x1) && active_index >= 0) {
+            window_t *win = &windows[active_index];
+            if (point_in_rect(mouse_x, mouse_y, win->x, win->y, win->w, win->h)) {
+                int mask = 0;
+                if (mouse_x - win->x < RESIZE_MARGIN) mask |= RESIZE_LEFT;
+                if ((win->x + win->w) - mouse_x < RESIZE_MARGIN) mask |= RESIZE_RIGHT;
+                if (mouse_y - win->y < RESIZE_MARGIN) mask |= RESIZE_TOP;
+                if ((win->y + win->h) - mouse_y < RESIZE_MARGIN) mask |= RESIZE_BOTTOM;
+                if (mask) {
+                    resizing_index = active_index;
+                    resize_mask = mask;
+                    resize_start_x = win->x;
+                    resize_start_y = win->y;
+                    resize_start_w = win->w;
+                    resize_start_h = win->h;
+                }
+            }
+        }
+
         if (ticks == last_tick) {
             asm volatile("hlt");
             continue;
         }
         last_tick = ticks;
-        net_poll();
 
         if (uptime_seconds != last_uptime) {
             last_uptime = uptime_seconds;
             dirty_panel = 1;
         }
 
-        if (handle_mouse_click()) {
-            dirty_full = 1;
-            dirty_panel = 1;
-            cursor_dirty = 1;
-            activity = 1;
+        if (mouse_buttons != prev_mouse_buttons) {
+            if (handle_mouse_click()) {
+                dirty_full = 1;
+                dirty_panel = 1;
+                cursor_dirty = 1;
+                activity = 1;
+            }
+            prev_mouse_buttons = mouse_buttons;
         }
-        prev_mouse_buttons = mouse_buttons;
 
-        int need_render = dirty_full || dirty_panel || dirty_window >= 0 || cursor_dirty;
+        int need_render = dirty_full || dirty_panel || dirty_window >= 0 || cursor_dirty || overlay_dirty;
         if (!activity && !need_render) {
             idle_accum += (u32)settings.idle_fps;
             if (idle_accum < PIT_HZ) {
@@ -934,6 +1101,7 @@ void desktop_loop(void) {
         }
 
         int did_full = 0;
+        int presented = 0;
 
         if (dirty_full) {
             draw_background();
@@ -946,16 +1114,22 @@ void desktop_loop(void) {
             }
             draw_panel();
             draw_launcher();
+            if (settings.debug_overlay) {
+                draw_debug_overlay(fps_value);
+                overlay_dirty = 0;
+            }
             gfx_present();
             dirty_full = 0;
             dirty_panel = 0;
             dirty_window = -1;
             did_full = 1;
+            presented = 1;
         } else if (dirty_window >= 0 && dirty_window < window_count) {
             window_t *win = &windows[dirty_window];
             draw_window(win);
             gfx_present_rect(win->x, win->y, win->w, win->h);
             dirty_window = -1;
+            presented = 1;
         }
 
         if (!did_full && dirty_panel) {
@@ -969,6 +1143,7 @@ void desktop_loop(void) {
                 gfx_present_rect(lx, ly, lw, lh);
             }
             dirty_panel = 0;
+            presented = 1;
         }
 
         if (cursor_dirty) {
@@ -977,6 +1152,26 @@ void desktop_loop(void) {
             prev_cursor_x = mouse_x;
             prev_cursor_y = mouse_y;
             cursor_dirty = 0;
+            presented = 1;
+        }
+
+        if (!did_full && settings.debug_overlay && overlay_dirty) {
+            draw_debug_overlay(fps_value);
+            gfx_present_rect(8, 8, 220, 92);
+            overlay_dirty = 0;
+            presented = 1;
+        }
+
+        if (presented) {
+            fps_frames++;
+        }
+
+        if (ticks - fps_last_tick >= PIT_HZ) {
+            u64 delta = ticks - fps_last_tick;
+            fps_value = (u32)((fps_frames * PIT_HZ) / (delta ? delta : 1));
+            fps_frames = 0;
+            fps_last_tick = ticks;
+            if (settings.debug_overlay) overlay_dirty = 1;
         }
     }
 }

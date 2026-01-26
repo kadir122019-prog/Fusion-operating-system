@@ -16,6 +16,7 @@ typedef struct {
     int history_count;
     int history_index;
     int exit_requested;
+    char cwd[128];
 } shell_t;
 
 void shell_init(shell_t *shell, terminal_t *term);

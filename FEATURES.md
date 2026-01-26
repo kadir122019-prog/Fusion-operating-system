@@ -10,6 +10,7 @@ This document explains how each feature works and how to use it.
 - **Snap**: drag to screen edges to snap left/right/top.
 - **Minimize**: click a task button for a focused window to minimize it.
 - **Alt+Tab**: switch to next window. **Shift+Alt+Tab** switches backward.
+- **Scheduler**: desktop runs as a task with background networking.
 
 ## Launcher
 - Full-height popout with app list and search.
@@ -53,6 +54,7 @@ Shows:
 - `copy` / `paste`
 - `netinfo`
 - `ls [path]`
+- `ls [-s|-t|-r] [path]` (size/type/reverse sorting)
 - `cat <path>`
 - `write <path> <text>`
 - `append <path> <text>`
@@ -66,6 +68,8 @@ Shows:
 - **Up/Down**: move selection.
 - **Enter/Right**: open a directory.
 - **Backspace/Left**: go up.
+- **S**: cycle sort mode (Name/Size/Type).
+- **R**: toggle descending sort.
 
 ## Browser
 - Open from the launcher.

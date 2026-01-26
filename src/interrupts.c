@@ -1,6 +1,10 @@
 #include "interrupts.h"
 #include "cpu.h"
 #include "input.h"
+#include "gfx.h"
+#include "memory.h"
+#include "lapic.h"
+#include "task.h"
 
 #define IDT_SIZE 256
 #define PIC1 0x20
@@ -37,9 +41,56 @@ static struct idt_entry idt[IDT_SIZE];
 static u16 code_selector = 0x08;
 static irq_handler_t irq_handlers[16];
 static void *irq_contexts[16];
+static volatile u64 irq_counts[16];
+static void (*vector_handlers[IDT_SIZE])(void);
+
+static void u64_to_dec_local(char *out, int max, u64 value) {
+    if (max <= 1) return;
+    if (value == 0) {
+        out[0] = '0';
+        out[1] = 0;
+        return;
+    }
+    char temp[24];
+    int pos = 0;
+    while (value && pos < (int)sizeof(temp)) {
+        temp[pos++] = (char)('0' + (value % 10));
+        value /= 10;
+    }
+    int out_pos = 0;
+    while (pos > 0 && out_pos < max - 1) {
+        out[out_pos++] = temp[--pos];
+    }
+    out[out_pos] = 0;
+}
+
+static void draw_crash_overlay(const char *msg) {
+    if (gfx_width() == 0 || gfx_height() == 0) return;
+    gfx_clear(0x200000);
+    int w = (int)gfx_width();
+    int h = (int)gfx_height();
+    int box_w = w > 360 ? 360 : w - 24;
+    int box_h = 120;
+    int x = (w - box_w) / 2;
+    int y = (h - box_h) / 2;
+    gfx_draw_rect(x, y, box_w, box_h, 0x3A0A0A);
+    gfx_draw_rect(x, y, box_w, 2, 0x7A1E1E);
+    gfx_draw_text("KERNEL HALT", x + 12, y + 12, 0xF2E9E9);
+    if (msg) gfx_draw_text(msg, x + 12, y + 32, 0xF2E9E9);
+
+    char buf[32];
+    gfx_draw_text("Ticks:", x + 12, y + 56, 0xE0C9C9);
+    u64_to_dec_local(buf, (int)sizeof(buf), ticks);
+    gfx_draw_text(buf, x + 84, y + 56, 0xF2E9E9);
+    gfx_draw_text("Uptime:", x + 12, y + 74, 0xE0C9C9);
+    u64_to_dec_local(buf, (int)sizeof(buf), uptime_seconds);
+    gfx_draw_text(buf, x + 84, y + 74, 0xF2E9E9);
+    gfx_present();
+}
 
 static void fatal_halt(void) {
     asm volatile("cli");
+    draw_crash_overlay("Unhandled exception");
     while (1) {
         asm volatile("hlt");
     }
@@ -94,8 +145,11 @@ static void pic_send_eoi(int irq) {
 }
 
 static void irq_dispatch(int irq) {
-    if (irq >= 0 && irq < 16 && irq_handlers[irq]) {
-        irq_handlers[irq](irq, irq_contexts[irq]);
+    if (irq >= 0 && irq < 16) {
+        irq_counts[irq]++;
+        if (irq_handlers[irq]) {
+            irq_handlers[irq](irq, irq_contexts[irq]);
+        }
     }
     pic_send_eoi(irq);
 }
@@ -146,6 +200,8 @@ __attribute__((interrupt))
 static void isr_timer(struct interrupt_frame *frame) {
     (void)frame;
     timer_handler();
+    task_tick();
+    irq_counts[0]++;
     pic_send_eoi(0);
 }
 
@@ -153,11 +209,55 @@ __attribute__((interrupt))
 static void isr_keyboard(struct interrupt_frame *frame) {
     (void)frame;
     u8 scancode = inb(0x60);
+    irq_counts[1]++;
     input_handle_scancode(scancode);
     pic_send_eoi(1);
 }
 
-void interrupts_init(void) {
+__attribute__((naked))
+static void isr_vector_0xf0(void) {
+    asm volatile(
+        "cli\n"
+        "pushq %rax\n"
+        "pushq %rbx\n"
+        "pushq %rcx\n"
+        "pushq %rdx\n"
+        "pushq %rbp\n"
+        "pushq %rdi\n"
+        "pushq %rsi\n"
+        "pushq %r8\n"
+        "pushq %r9\n"
+        "pushq %r10\n"
+        "pushq %r11\n"
+        "pushq %r12\n"
+        "pushq %r13\n"
+        "pushq %r14\n"
+        "pushq %r15\n"
+        "movq %rsp, %rdi\n"
+        "call task_schedule_isr\n"
+        "movq %rax, %rbx\n"
+        "call lapic_eoi\n"
+        "movq %rbx, %rsp\n"
+        "popq %r15\n"
+        "popq %r14\n"
+        "popq %r13\n"
+        "popq %r12\n"
+        "popq %r11\n"
+        "popq %r10\n"
+        "popq %r9\n"
+        "popq %r8\n"
+        "popq %rsi\n"
+        "popq %rdi\n"
+        "popq %rbp\n"
+        "popq %rdx\n"
+        "popq %rcx\n"
+        "popq %rbx\n"
+        "popq %rax\n"
+        "iretq\n"
+    );
+}
+
+static void interrupts_setup_idt(void) {
     asm volatile("mov %%cs, %0" : "=r"(code_selector));
 
     for (int i = 0; i < IDT_SIZE; i++) {
@@ -200,14 +300,24 @@ void interrupts_init(void) {
     idt_set_gate(45, (void (*)(void))isr_irq13);
     idt_set_gate(46, (void (*)(void))isr_irq14);
     idt_set_gate(47, (void (*)(void))isr_irq15);
+    idt_set_gate(0xF0, (void (*)(void))isr_vector_0xf0);
 
     idt_load();
+}
+
+void interrupts_init(void) {
+    interrupts_setup_idt();
     pic_remap();
 
     outb(PIC1_DATA, 0xFC);
     outb(PIC2_DATA, 0xFF);
 
     pit_init(PIT_HZ);
+    asm volatile("sti");
+}
+
+void interrupts_init_ap(void) {
+    interrupts_setup_idt();
     asm volatile("sti");
 }
 
@@ -231,4 +341,15 @@ void interrupts_mask_irq(int irq) {
     u8 mask = inb(port);
     mask |= (u8)(1u << (irq & 7));
     outb(port, mask);
+}
+
+u64 interrupts_get_irq_count(int irq) {
+    if (irq < 0 || irq >= 16) return 0;
+    return irq_counts[irq];
+}
+
+void interrupts_set_vector(int vector, void (*handler)(void)) {
+    if (vector < 0 || vector >= IDT_SIZE) return;
+    vector_handlers[vector] = handler;
+    idt_set_gate(vector, handler);
 }

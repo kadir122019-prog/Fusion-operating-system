@@ -1,7 +1,7 @@
 #include "cpu.h"
 
-u64 ticks = 0;
-u64 uptime_seconds = 0;
+volatile u64 ticks = 0;
+volatile u64 uptime_seconds = 0;
 
 void pit_init(u32 frequency) {
     u32 divisor = 1193180 / frequency;
@@ -15,6 +15,25 @@ void timer_handler(void) {
     if (ticks % PIT_HZ == 0) {
         uptime_seconds++;
     }
+}
+
+void cpu_sleep_ticks(u64 sleep_ticks) {
+    u64 target = ticks + sleep_ticks;
+    while (ticks < target) {
+        asm volatile("hlt");
+    }
+}
+
+u64 rdmsr(u32 msr) {
+    u32 lo, hi;
+    asm volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
+    return ((u64)hi << 32) | lo;
+}
+
+void wrmsr(u32 msr, u64 value) {
+    u32 lo = (u32)(value & 0xFFFFFFFFu);
+    u32 hi = (u32)(value >> 32);
+    asm volatile("wrmsr" : : "c"(msr), "a"(lo), "d"(hi));
 }
 
 void cpu_get_vendor(char *vendor) {

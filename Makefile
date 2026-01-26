@@ -54,7 +54,12 @@ $(ISO): $(KERNEL) limine
 	@rm -rf iso_root
 	@mkdir -p iso_root/boot iso_root/boot/limine iso_root/EFI/BOOT
 	@cp $(KERNEL) iso_root/boot/
-	@cp $(BOOTDIR)/limine.cfg iso_root/boot/limine/
+	@cp $(BOOTDIR)/limine.conf iso_root/boot/limine/limine.conf
+	@cp $(BOOTDIR)/limine.cfg iso_root/boot/limine/limine.cfg
+	@cp $(BOOTDIR)/limine.conf iso_root/boot/limine.conf
+	@cp $(BOOTDIR)/limine.cfg iso_root/boot/limine.cfg
+	@cp $(BOOTDIR)/limine.conf iso_root/limine.conf
+	@cp $(BOOTDIR)/limine.cfg iso_root/limine.cfg
 	@cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/boot/limine/
 	@cp $(LIMINE_DIR)/BOOTX64.EFI iso_root/EFI/BOOT/

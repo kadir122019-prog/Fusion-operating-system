@@ -15,6 +15,43 @@ static int extended = 0;
 static int shift_down = 0;
 static int alt_down = 0;
 
+static int ps2_wait_read(void) {
+    for (int i = 0; i < 100000; i++) {
+        if (inb(0x64) & 0x01) return 1;
+        io_wait();
+    }
+    return 0;
+}
+
+static int ps2_wait_write(void) {
+    for (int i = 0; i < 100000; i++) {
+        if (!(inb(0x64) & 0x02)) return 1;
+        io_wait();
+    }
+    return 0;
+}
+
+static void ps2_write_cmd(u8 cmd) {
+    if (!ps2_wait_write()) return;
+    outb(0x64, cmd);
+}
+
+static void ps2_write_data(u8 data) {
+    if (!ps2_wait_write()) return;
+    outb(0x60, data);
+}
+
+static u8 ps2_read_data(void) {
+    if (!ps2_wait_read()) return 0;
+    return inb(0x60);
+}
+
+static void ps2_flush_output(void) {
+    while (inb(0x64) & 0x01) {
+        (void)inb(0x60);
+    }
+}
+
 static const char scancode_ascii[128] = {
     0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
     '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
@@ -54,12 +91,33 @@ void input_init(void) {
     mouse_y = 20;
     mouse_buttons = 0;
 
-    outb(0x64, 0xA8);
-    io_wait();
-    outb(0x64, 0xD4);
-    io_wait();
-    outb(0x60, 0xF4);
-    io_wait();
+    ps2_write_cmd(0xAD);
+    ps2_write_cmd(0xA7);
+    ps2_flush_output();
+
+    ps2_write_cmd(0x20);
+    u8 config = ps2_read_data();
+    config |= 0x03;
+    config &= (u8)~(1u << 4);
+    config &= (u8)~(1u << 5);
+    config |= (1u << 6);
+    ps2_write_cmd(0x60);
+    ps2_write_data(config);
+
+    ps2_write_cmd(0xAE);
+    ps2_write_cmd(0xA8);
+    ps2_flush_output();
+
+    ps2_write_data(0xF4);
+    ps2_read_data();
+
+    ps2_write_cmd(0xD4);
+    ps2_write_data(0xF6);
+    ps2_read_data();
+
+    ps2_write_cmd(0xD4);
+    ps2_write_data(0xF4);
+    ps2_read_data();
 }
 
 static key_event_t translate_scancode(u8 scancode) {

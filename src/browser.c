@@ -167,7 +167,7 @@ static void browser_fetch(browser_t *br) {
                 browser_set_status(br, "Network down");
                 return;
             }
-            asm volatile("hlt");
+            cpu_sleep_ticks(1);
         }
     }
     char host[96];
@@ -196,7 +196,7 @@ static void browser_fetch(browser_t *br) {
             browser_set_status(br, "Connect timeout");
             return;
         }
-        asm volatile("hlt");
+        cpu_sleep_ticks(1);
     }
 
     char req[512];
@@ -233,7 +233,7 @@ static void browser_fetch(browser_t *br) {
             last_rx = ticks;
         }
         if (ticks - last_rx > PIT_HZ * 5) break;
-        asm volatile("hlt");
+        cpu_sleep_ticks(1);
     }
     net_tcp_close();
 

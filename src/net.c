@@ -777,7 +777,7 @@ int net_dns_resolve(const char *host, u32 *out_ip) {
             if (out_ip) *out_ip = dns_result_ip;
             return 1;
         }
-        asm volatile("hlt");
+        cpu_sleep_ticks(1);
     }
     dns_pending = 0;
     return 0;

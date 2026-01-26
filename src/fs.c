@@ -186,6 +186,27 @@ static int name_equals(const char *a, const char *b) {
     return *a == 0 && *b == 0;
 }
 
+static int fs_stricmp(const char *a, const char *b) {
+    while (*a && *b) {
+        char ca = *a++;
+        char cb = *b++;
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
+        if (ca != cb) return (unsigned char)ca - (unsigned char)cb;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+static int fs_extcmp(const char *a, const char *b) {
+    const char *ea = a;
+    const char *eb = b;
+    for (const char *p = a; *p; p++) if (*p == '.') ea = p + 1;
+    for (const char *p = b; *p; p++) if (*p == '.') eb = p + 1;
+    int cmp = fs_stricmp(ea, eb);
+    if (cmp != 0) return cmp;
+    return fs_stricmp(a, b);
+}
+
 static void lfn_extract_part(const fat_lfn_t *lfn, char *out, int max) {
     int pos = 0;
     const u8 *name1 = (const u8 *)lfn->name1;
@@ -261,6 +282,119 @@ static int fat_find_entry(u32 dir_cluster, const char *name,
         cluster = fat_get_entry(cluster);
     }
     return 0;
+}
+
+static int fat_mark_deleted(u32 dir_cluster, u32 offset) {
+    u32 lba = cluster_to_lba(dir_cluster);
+    u32 sector = offset / fs.bytes_per_sector;
+    u32 off = offset % fs.bytes_per_sector;
+    if (!blk_read(lba + sector, 1, sector_buf)) return 0;
+    sector_buf[off] = 0xE5;
+    return blk_write(lba + sector, 1, sector_buf);
+}
+
+static int fat_delete_entry(u32 dir_cluster, const char *name, fat_dirent_t *out_ent) {
+    u32 cluster = dir_cluster;
+    char lfn_buf[256];
+    lfn_buf[0] = 0;
+    u32 lfn_offsets[20];
+    int lfn_count = 0;
+    while (cluster >= 2 && cluster < 0x0FFFFFF8) {
+        lfn_buf[0] = 0;
+        lfn_count = 0;
+        u32 lba = cluster_to_lba(cluster);
+        for (u8 s = 0; s < fs.sectors_per_cluster; s++) {
+            if (!blk_read(lba + s, 1, sector_buf)) return 0;
+            for (u32 off = 0; off < fs.bytes_per_sector; off += 32) {
+                const u8 *entry = &sector_buf[off];
+                if (entry[0] == 0x00) return 0;
+                if (entry[0] == 0xE5) {
+                    lfn_buf[0] = 0;
+                    lfn_count = 0;
+                    continue;
+                }
+                u8 attr = entry[11];
+                if (attr == FAT32_ATTR_LFN) {
+                    const fat_lfn_t *lfn = (const fat_lfn_t *)entry;
+                    if (lfn->order & 0x40) {
+                        lfn_buf[0] = 0;
+                        lfn_count = 0;
+                    }
+                    if (lfn_count < (int)(sizeof(lfn_offsets) / sizeof(lfn_offsets[0]))) {
+                        lfn_offsets[lfn_count++] = off + s * fs.bytes_per_sector;
+                    }
+                    char part[32];
+                    lfn_extract_part(lfn, part, (int)sizeof(part));
+                    lfn_prepend(lfn_buf, (int)sizeof(lfn_buf), part);
+                    continue;
+                }
+                char name_buf[64];
+                if (lfn_buf[0]) {
+                    strcpy(name_buf, lfn_buf);
+                } else {
+                    short_to_name(entry, name_buf, (int)sizeof(name_buf));
+                }
+                lfn_buf[0] = 0;
+                if (name_equals(name_buf, name)) {
+                    if (out_ent) memcpy(out_ent, entry, sizeof(fat_dirent_t));
+                    for (int i = 0; i < lfn_count; i++) {
+                        if (!fat_mark_deleted(cluster, lfn_offsets[i])) return 0;
+                    }
+                    if (!fat_mark_deleted(cluster, off + s * fs.bytes_per_sector)) return 0;
+                    return 1;
+                }
+                lfn_count = 0;
+            }
+        }
+        cluster = fat_get_entry(cluster);
+    }
+    return 0;
+}
+
+static int fat_dir_is_empty(u32 dir_cluster) {
+    u32 cluster = dir_cluster;
+    char lfn_buf[256];
+    lfn_buf[0] = 0;
+    while (cluster >= 2 && cluster < 0x0FFFFFF8) {
+        u32 lba = cluster_to_lba(cluster);
+        for (u8 s = 0; s < fs.sectors_per_cluster; s++) {
+            if (!blk_read(lba + s, 1, sector_buf)) return 0;
+            for (u32 off = 0; off < fs.bytes_per_sector; off += 32) {
+                const u8 *entry = &sector_buf[off];
+                if (entry[0] == 0x00) return 1;
+                if (entry[0] == 0xE5) {
+                    lfn_buf[0] = 0;
+                    continue;
+                }
+                u8 attr = entry[11];
+                if (attr == FAT32_ATTR_LFN) {
+                    const fat_lfn_t *lfn = (const fat_lfn_t *)entry;
+                    if (lfn->order & 0x40) lfn_buf[0] = 0;
+                    char part[32];
+                    lfn_extract_part(lfn, part, (int)sizeof(part));
+                    lfn_prepend(lfn_buf, (int)sizeof(lfn_buf), part);
+                    continue;
+                }
+                if (attr & 0x08) {
+                    lfn_buf[0] = 0;
+                    continue;
+                }
+                char name_buf[64];
+                if (lfn_buf[0]) {
+                    strcpy(name_buf, lfn_buf);
+                } else {
+                    short_to_name(entry, name_buf, (int)sizeof(name_buf));
+                }
+                lfn_buf[0] = 0;
+                if (strcmp(name_buf, ".") == 0 || strcmp(name_buf, "..") == 0) {
+                    continue;
+                }
+                return 0;
+            }
+        }
+        cluster = fat_get_entry(cluster);
+    }
+    return 1;
 }
 
 static int fat_read_dir(u32 dir_cluster, fs_entry_t *entries, int max_entries, int *out_count) {
@@ -698,4 +832,136 @@ int fs_mkdir(const char *path) {
         if (!blk_write(lba + s, 1, sector_buf)) return 0;
     }
     return 1;
+}
+
+int fs_exists(const char *path) {
+    if (!fs.mounted) return 0;
+    if (!path || !path[0]) return 0;
+    if (strcmp(path, "/") == 0) return 1;
+    char name[64];
+    u32 dir = path_dir_cluster(path, name, (int)sizeof(name));
+    if (dir == 0 || name[0] == 0) return 0;
+    return fat_find_entry(dir, name, NULL, NULL, NULL);
+}
+
+int fs_delete(const char *path) {
+    if (!fs.mounted) return 0;
+    if (!path || !path[0] || strcmp(path, "/") == 0) return 0;
+    char name[64];
+    u32 dir = path_dir_cluster(path, name, (int)sizeof(name));
+    if (dir == 0 || name[0] == 0) return 0;
+    fat_dirent_t ent;
+    if (!fat_find_entry(dir, name, &ent, NULL, NULL)) return 0;
+    u32 start_cluster = dirent_first_cluster(&ent);
+    if (ent.attr & FAT32_ATTR_DIR) {
+        if (start_cluster == 0) return 0;
+        if (!fat_dir_is_empty(start_cluster)) return 0;
+    }
+    if (!fat_delete_entry(dir, name, NULL)) return 0;
+    if (start_cluster != 0) {
+        fat_free_chain(start_cluster);
+    }
+    return 1;
+}
+
+int fs_rename(const char *old_path, const char *new_path) {
+    if (!fs.mounted) return 0;
+    if (!old_path || !new_path) return 0;
+    if (strcmp(old_path, new_path) == 0) return 1;
+    char old_name[64];
+    char new_name[64];
+    u32 old_dir = path_dir_cluster(old_path, old_name, (int)sizeof(old_name));
+    u32 new_dir = path_dir_cluster(new_path, new_name, (int)sizeof(new_name));
+    if (old_dir == 0 || new_dir == 0 || old_name[0] == 0 || new_name[0] == 0) return 0;
+    if (fat_find_entry(new_dir, new_name, NULL, NULL, NULL)) return 0;
+    fat_dirent_t ent;
+    if (!fat_find_entry(old_dir, old_name, &ent, NULL, NULL)) return 0;
+    if ((ent.attr & FAT32_ATTR_DIR) && old_dir != new_dir) return 0;
+
+    fat_dirent_t new_ent;
+    u32 new_ent_cluster = 0;
+    u32 new_ent_offset = 0;
+    if (!fat_create_entry(new_dir, new_name, ent.attr, &new_ent, &new_ent_cluster, &new_ent_offset)) return 0;
+    dirent_set_first_cluster(&new_ent, dirent_first_cluster(&ent));
+    new_ent.file_size = ent.file_size;
+    if (!fat_update_dirent(new_ent_cluster, new_ent_offset, &new_ent)) return 0;
+
+    if (!fat_delete_entry(old_dir, old_name, NULL)) return 0;
+    return 1;
+}
+
+int fs_copy(const char *src_path, const char *dst_path) {
+    if (!fs.mounted) return 0;
+    if (!src_path || !dst_path) return 0;
+    char name[64];
+    u32 dir = path_dir_cluster(src_path, name, (int)sizeof(name));
+    if (dir == 0 || name[0] == 0) return 0;
+    fat_dirent_t ent;
+    if (!fat_find_entry(dir, name, &ent, NULL, NULL)) return 0;
+    if (ent.attr & FAT32_ATTR_DIR) return 0;
+
+    u8 *data = 0;
+    u32 len = 0;
+    if (!fs_read_file(src_path, &data, &len)) return 0;
+    int ok = fs_write_file(dst_path, data, len);
+    free(data);
+    return ok;
+}
+
+int fs_move(const char *src_path, const char *dst_path) {
+    if (!fs.mounted) return 0;
+    if (fs_rename(src_path, dst_path)) return 1;
+    if (!fs_copy(src_path, dst_path)) return 0;
+    return fs_delete(src_path);
+}
+
+int fs_stat(const char *path, fs_entry_t *out) {
+    if (!fs.mounted) return 0;
+    if (!path || !path[0]) return 0;
+    if (strcmp(path, "/") == 0) {
+        if (out) {
+            strcpy(out->name, "/");
+            out->is_dir = 1;
+            out->size = 0;
+        }
+        return 1;
+    }
+    char name[64];
+    u32 dir = path_dir_cluster(path, name, (int)sizeof(name));
+    if (dir == 0 || name[0] == 0) return 0;
+    fat_dirent_t ent;
+    if (!fat_find_entry(dir, name, &ent, NULL, NULL)) return 0;
+    if (out) {
+        strcpy(out->name, name);
+        out->is_dir = (ent.attr & FAT32_ATTR_DIR) ? 1 : 0;
+        out->size = ent.file_size;
+    }
+    return 1;
+}
+
+void fs_sort_entries(fs_entry_t *entries, int count, fs_sort_mode_t mode, int descending) {
+    if (!entries || count <= 1) return;
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = 0; j < count - 1 - i; j++) {
+            fs_entry_t *a = &entries[j];
+            fs_entry_t *b = &entries[j + 1];
+            int cmp = 0;
+            if (a->is_dir != b->is_dir) {
+                cmp = a->is_dir ? -1 : 1;
+            } else if (mode == FS_SORT_SIZE) {
+                if (a->size < b->size) cmp = -1;
+                else if (a->size > b->size) cmp = 1;
+            } else if (mode == FS_SORT_TYPE) {
+                cmp = fs_extcmp(a->name, b->name);
+            } else {
+                cmp = fs_stricmp(a->name, b->name);
+            }
+            if (descending) cmp = -cmp;
+            if (cmp > 0) {
+                fs_entry_t temp = *a;
+                *a = *b;
+                *b = temp;
+            }
+        }
+    }
 }

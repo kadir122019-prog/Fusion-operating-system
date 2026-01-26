@@ -255,11 +255,13 @@ u64 gfx_pitch(void) {
 
 void gfx_present(void) {
     if (!backbuffer || !fb_ptr || backbuffer_bytes == 0) return;
+    if (draw_ptr == fb_ptr) return;
     memcpy(fb_ptr, backbuffer, backbuffer_bytes);
 }
 
 void gfx_present_rect(int x, int y, int w, int h) {
     if (!draw_ptr || !fb_ptr) return;
+    if (draw_ptr == fb_ptr) return;
     if (w <= 0 || h <= 0) return;
 
     int x0 = x;

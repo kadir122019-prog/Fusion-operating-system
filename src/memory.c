@@ -183,40 +183,7 @@ void *phys_alloc(size_t size, size_t align, u64 *out_phys) {
     return phys_to_virt(next);
 }
 
-void *malloc(size_t size) {
-    if (size == 0) return NULL;
-    
-    size = (size + 7) & ~7;
-    
-    block_t *current = heap_start;
-    while (current) {
-        if (current->free && current->size >= size) {
-            if (current->size >= size + sizeof(block_t) + 8) {
-                block_t *new_block = (block_t *)((u8 *)current + sizeof(block_t) + size);
-                new_block->size = current->size - size - sizeof(block_t);
-                new_block->free = true;
-                new_block->next = current->next;
-                current->next = new_block;
-                current->size = size;
-                heap_blocks++;
-            }
-            current->free = false;
-            heap_allocated += current->size;
-            return (void *)((u8 *)current + sizeof(block_t));
-        }
-        current = current->next;
-    }
-    
-    return NULL;
-}
-
-void free(void *ptr) {
-    if (!ptr) return;
-    
-    block_t *block = (block_t *)((u8 *)ptr - sizeof(block_t));
-    block->free = true;
-    heap_freed += block->size;
-    
+static void heap_coalesce(void) {
     block_t *current = heap_start;
     while (current && current->next) {
         if (current->free && current->next->free) {
@@ -227,4 +194,108 @@ void free(void *ptr) {
             current = current->next;
         }
     }
+}
+
+void *malloc(size_t size) {
+    if (size == 0) return NULL;
+    
+    size = (size + 7) & ~7;
+    
+    block_t *best = NULL;
+    block_t *current = heap_start;
+    while (current) {
+        if (current->free && current->size >= size) {
+            if (!best || current->size < best->size) {
+                best = current;
+                if (current->size == size) break;
+            }
+        }
+        current = current->next;
+    }
+
+    if (best) {
+        if (best->size >= size + sizeof(block_t) + 8) {
+            block_t *new_block = (block_t *)((u8 *)best + sizeof(block_t) + size);
+            new_block->size = best->size - size - sizeof(block_t);
+            new_block->free = true;
+            new_block->next = best->next;
+            best->next = new_block;
+            best->size = size;
+            heap_blocks++;
+        }
+        best->free = false;
+        heap_allocated += best->size;
+        return (void *)((u8 *)best + sizeof(block_t));
+    }
+    
+    return NULL;
+}
+
+void *calloc(size_t nmemb, size_t size) {
+    if (nmemb == 0 || size == 0) return NULL;
+    if (size > (size_t)(-1) / nmemb) return NULL;
+    size_t total = nmemb * size;
+    void *ptr = malloc(total);
+    if (ptr) memset(ptr, 0, total);
+    return ptr;
+}
+
+void *realloc(void *ptr, size_t size) {
+    if (!ptr) return malloc(size);
+    if (size == 0) {
+        free(ptr);
+        return NULL;
+    }
+    size = (size + 7) & ~7;
+    block_t *block = (block_t *)((u8 *)ptr - sizeof(block_t));
+    size_t old_size = block->size;
+
+    if (old_size >= size) {
+        if (old_size >= size + sizeof(block_t) + 8) {
+            block_t *new_block = (block_t *)((u8 *)block + sizeof(block_t) + size);
+            new_block->size = old_size - size - sizeof(block_t);
+            new_block->free = true;
+            new_block->next = block->next;
+            block->next = new_block;
+            block->size = size;
+            heap_blocks++;
+            heap_freed += (old_size - size);
+            heap_coalesce();
+        }
+        return ptr;
+    }
+
+    block_t *next = block->next;
+    if (next && next->free &&
+        old_size + sizeof(block_t) + next->size >= size) {
+        block->size = old_size + sizeof(block_t) + next->size;
+        block->next = next->next;
+        heap_blocks--;
+        if (block->size >= size + sizeof(block_t) + 8) {
+            block_t *split = (block_t *)((u8 *)block + sizeof(block_t) + size);
+            split->size = block->size - size - sizeof(block_t);
+            split->free = true;
+            split->next = block->next;
+            block->next = split;
+            block->size = size;
+            heap_blocks++;
+        }
+        if (size > old_size) heap_allocated += (size - old_size);
+        return (void *)((u8 *)block + sizeof(block_t));
+    }
+
+    void *new_ptr = malloc(size);
+    if (!new_ptr) return NULL;
+    memcpy(new_ptr, ptr, old_size < size ? old_size : size);
+    free(ptr);
+    return new_ptr;
+}
+
+void free(void *ptr) {
+    if (!ptr) return;
+    
+    block_t *block = (block_t *)((u8 *)ptr - sizeof(block_t));
+    block->free = true;
+    heap_freed += block->size;
+    heap_coalesce();
 }

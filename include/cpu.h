@@ -3,8 +3,8 @@
 
 #include "types.h"
 
-extern u64 ticks;
-extern u64 uptime_seconds;
+extern volatile u64 ticks;
+extern volatile u64 uptime_seconds;
 
 #define PIT_HZ 60
 
@@ -46,6 +46,9 @@ void pit_init(u32 frequency);
 void timer_handler(void);
 void cpu_get_vendor(char *vendor);
 void cpu_get_features(u32 *features_edx, u32 *features_ecx);
+void cpu_sleep_ticks(u64 sleep_ticks);
+u64 rdmsr(u32 msr);
+void wrmsr(u32 msr, u64 value);
 
 void reboot(void);
 void halt(void);

@@ -10,6 +10,15 @@ typedef struct {
     int selection;
     int entry_count;
     fs_entry_t entries[64];
+    fs_sort_mode_t sort_mode;
+    int sort_desc;
+    char clipboard[128];
+    int clipboard_cut;
+    char input[64];
+    int input_len;
+    int mode;
+    char status[64];
+    u64 status_until;
 } file_manager_t;
 
 void file_manager_init(file_manager_t *fm);

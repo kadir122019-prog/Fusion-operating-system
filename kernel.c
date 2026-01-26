@@ -10,8 +10,22 @@
 #include "desktop.h"
 #include "net.h"
 #include "fs.h"
+#include "lapic.h"
+#include "task.h"
 
 extern u8 __kernel_end[];
+
+#define BOOT_STACK_SIZE 16384
+#define BOOT_STACK_CPUS 64
+
+static u8 boot_stacks[BOOT_STACK_CPUS][BOOT_STACK_SIZE] __attribute__((aligned(16)));
+
+static inline void boot_stack_set(u32 cpu_index) {
+    if (cpu_index >= BOOT_STACK_CPUS) cpu_index = 0;
+    u64 sp = (u64)boot_stacks[cpu_index] + BOOT_STACK_SIZE;
+    sp &= ~0xFULL;
+    asm volatile("mov %0, %%rsp" : : "r"(sp));
+}
 
 __attribute__((used, section(".requests")))
 static volatile struct limine_framebuffer_request framebuffer_request = {
@@ -37,11 +51,52 @@ static volatile struct limine_kernel_address_request kernel_address_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".requests")))
+static volatile struct limine_smp_request mp_request = {
+    .id = LIMINE_SMP_REQUEST,
+    .revision = 0,
+    .flags = 0
+};
+
 __attribute__((used, section(".requests_start")))
 static volatile LIMINE_REQUESTS_START_MARKER;
 
 __attribute__((used, section(".requests_end")))
 static volatile LIMINE_REQUESTS_END_MARKER;
+
+static void desktop_task(void *arg) {
+    (void)arg;
+    desktop_init();
+    desktop_loop();
+}
+
+static void net_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        net_poll();
+        task_sleep(1);
+    }
+}
+
+static void ap_entry(struct limine_smp_info *info) {
+    u32 index = (u32)info->extra_argument;
+    boot_stack_set(index);
+    asm volatile(
+        "movw $0x30, %%ax\n"
+        "movw %%ax, %%ds\n"
+        "movw %%ax, %%es\n"
+        "movw %%ax, %%ss\n"
+        :
+        :
+        : "ax"
+    );
+    task_register_cpu(info->lapic_id, index);
+    lapic_init_ap();
+    interrupts_init_ap();
+    lapic_timer_setup(PIT_HZ);
+    task_start_ap();
+    while (1) asm volatile("hlt");
+}
 
 void pmm_init(void) {
     if (memmap_request.response == NULL) return;
@@ -91,18 +146,52 @@ void _start(void) {
     }
     gfx_init((u32 *)fb_addr, framebuffer->width, framebuffer->height, framebuffer->pitch);
 
+    boot_stack_set(0);
+    asm volatile(
+        "movw $0x30, %%ax\n"
+        "movw %%ax, %%ds\n"
+        "movw %%ax, %%es\n"
+        "movw %%ax, %%ss\n"
+        :
+        :
+        : "ax"
+    );
+
     heap_init();
     gfx_enable_backbuffer(1);
     pmm_init();
     memory_set_memmap(memmap_request.response, kernel_phys_base, kernel_phys_end);
     input_init();
-    interrupts_init();
     gfx_clear(0x000000);
     net_init();
     fs_init();
 
-    desktop_init();
-    desktop_loop();
+    u32 cpu_count = 1;
+    if (mp_request.response && mp_request.response->cpu_count) {
+        cpu_count = (u32)mp_request.response->cpu_count;
+        for (u32 i = 0; i < cpu_count; i++) {
+            struct limine_smp_info *cpu = mp_request.response->cpus[i];
+            task_register_cpu(cpu->lapic_id, i);
+        }
+    }
 
+    interrupts_init();
+    lapic_init();
+    lapic_timer_setup(PIT_HZ);
+
+    task_init(cpu_count);
+    task_create("desktop", desktop_task, NULL);
+    task_create("net", net_task, NULL);
+
+    if (mp_request.response) {
+        for (u32 i = 0; i < cpu_count; i++) {
+            struct limine_smp_info *cpu = mp_request.response->cpus[i];
+            if (cpu->lapic_id == mp_request.response->bsp_lapic_id) continue;
+            cpu->goto_address = ap_entry;
+            cpu->extra_argument = i;
+        }
+    }
+
+    task_start_bsp();
     while (1) asm volatile("hlt");
 }

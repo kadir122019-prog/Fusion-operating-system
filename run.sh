@@ -4,5 +4,5 @@ else
   DISK_ARGS=""
 fi
 
-qemu-system-x86_64 -cdrom fusion.iso -m 256M -serial stdio \
+qemu-system-x86_64 -cdrom fusion.iso -m 256M -smp 2 -serial stdio \
   -netdev user,id=net0 -device e1000,netdev=net0 $DISK_ARGS
