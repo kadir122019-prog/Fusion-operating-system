@@ -5,7 +5,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifndef NULL
 #define NULL ((void*)0)
+#endif
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -18,7 +20,7 @@ typedef int32_t  i32;
 typedef int64_t  i64;
 
 #define PAGE_SIZE 4096
-#define HEAP_SIZE (16 * 1024 * 1024)
+#define HEAP_SIZE (32 * 1024 * 1024)
 
 #define COLOR_BLACK   0x000000
 #define COLOR_RED     0xFF0000

@@ -12,7 +12,7 @@ void pit_init(u32 frequency) {
 
 void timer_handler(void) {
     ticks++;
-    if (ticks % 100 == 0) {
+    if (ticks % PIT_HZ == 0) {
         uptime_seconds++;
     }
 }

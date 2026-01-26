@@ -2,8 +2,10 @@
 include config.mk
 
 # Source files
-C_SOURCES := $(wildcard $(SRCDIR)/*.c)
-OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES))
+C_SOURCES := $(filter-out $(SRCDIR)/wm.c, $(wildcard $(SRCDIR)/*.c))
+KERNEL_SOURCES := kernel.c
+ALL_SOURCES := $(C_SOURCES) $(KERNEL_SOURCES)
+OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES)) $(patsubst %.c,$(BUILDDIR)/%.o,$(KERNEL_SOURCES))
 
 .PHONY: all clean distclean run limine setup
 
@@ -15,6 +17,10 @@ setup:
 	@mkdir -p $(BOOTDIR)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c
+	@echo "$(COLOR_BLUE)[CC]$(COLOR_RESET) $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/kernel.o: kernel.c
 	@echo "$(COLOR_BLUE)[CC]$(COLOR_RESET) $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
@@ -60,7 +66,7 @@ $(ISO): $(KERNEL) limine
 
 run: $(ISO)
 	@echo "$(COLOR_BLUE)Starting QEMU...$(COLOR_RESET)"
-	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial stdio
+	@./run.sh
 
 clean:
 	@echo "$(COLOR_YELLOW)Cleaning build artifacts...$(COLOR_RESET)"

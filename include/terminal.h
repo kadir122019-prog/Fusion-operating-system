@@ -2,27 +2,40 @@
 #define TERMINAL_H
 
 #include "types.h"
-#include <limine.h>
 
-#define FONT_WIDTH 8
-#define FONT_HEIGHT 16
+#define TERM_DEFAULT_FG 0xE6E6E6
+#define TERM_DEFAULT_BG 0x0B0D12
 
-extern u32 fg_color;
-extern u32 bg_color;
+typedef struct {
+    int x;
+    int y;
+    int w;
+    int h;
+    int cols;
+    int rows;
+    int cursor_x;
+    int cursor_y;
+    int line_head;
+    int line_count;
+    int total_lines;
+    int view_offset;
+    u32 fg;
+    u32 bg;
+    char *cells;
+    char *clipboard;
+    size_t clipboard_len;
+    size_t clipboard_cap;
+} terminal_t;
 
-void terminal_init(struct limine_framebuffer *fb_info);
-void clear_screen(void);
-void scroll_up(void);
-
-void putchar(char c);
-void putchar_color(char c, u32 color);
-void print(const char *s);
-void print_color(const char *s, u32 color);
-void print_hex(u64 n);
-void print_dec(u64 n);
-
-void draw_char(char c, u64 x, u64 y, u32 color);
-
-char read_key(void);
+void terminal_init(terminal_t *term, int x, int y, int w, int h);
+void terminal_set_bounds(terminal_t *term, int x, int y, int w, int h);
+void terminal_clear(terminal_t *term);
+void terminal_putc(terminal_t *term, char c);
+void terminal_print(terminal_t *term, const char *s);
+void terminal_render(terminal_t *term);
+void terminal_scroll_up(terminal_t *term);
+void terminal_scroll_down(terminal_t *term);
+void terminal_copy_visible(terminal_t *term);
+void terminal_paste(terminal_t *term);
 
 #endif
