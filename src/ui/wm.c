@@ -1,6 +1,6 @@
-#include "wm.h"
-#include "terminal.h"
-#include "memory.h"
+#include "ui/wm.h"
+#include "ui/terminal.h"
+#include "kernel/memory.h"
 
 wm_t wm;
 

@@ -1,6 +1,6 @@
-#include "terminal.h"
-#include "gfx.h"
-#include "memory.h"
+#include "ui/terminal.h"
+#include "drivers/gfx.h"
+#include "kernel/memory.h"
 
 #define SCROLLBACK_LINES 200
 

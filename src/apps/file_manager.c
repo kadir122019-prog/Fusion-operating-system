@@ -1,7 +1,7 @@
-#include "file_manager.h"
-#include "gfx.h"
-#include "memory.h"
-#include "cpu.h"
+#include "apps/file_manager.h"
+#include "drivers/gfx.h"
+#include "kernel/memory.h"
+#include "kernel/cpu.h"
 
 #define FM_MODE_NORMAL 0
 #define FM_MODE_RENAME 1

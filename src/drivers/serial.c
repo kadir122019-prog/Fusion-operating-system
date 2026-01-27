@@ -1,5 +1,5 @@
-#include "serial.h"
-#include "cpu.h"
+#include "drivers/serial.h"
+#include "kernel/cpu.h"
 
 #define COM1_PORT 0x3F8
 

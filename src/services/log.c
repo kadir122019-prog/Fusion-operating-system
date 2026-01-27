@@ -1,6 +1,6 @@
-#include "log.h"
-#include "serial.h"
-#include "cpu.h"
+#include "services/log.h"
+#include "drivers/serial.h"
+#include "kernel/cpu.h"
 
 static const char *level_to_str(log_level_t level) {
     switch (level) {

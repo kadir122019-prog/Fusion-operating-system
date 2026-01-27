@@ -1,6 +1,6 @@
-#include "lapic.h"
-#include "cpu.h"
-#include "memory.h"
+#include "kernel/lapic.h"
+#include "kernel/cpu.h"
+#include "kernel/memory.h"
 
 #define MSR_APIC_BASE 0x1B
 #define APIC_ENABLE   (1ull << 11)

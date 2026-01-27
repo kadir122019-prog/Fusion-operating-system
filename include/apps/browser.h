@@ -2,7 +2,7 @@
 #define BROWSER_H
 
 #include "types.h"
-#include "input.h"
+#include "drivers/input.h"
 
 typedef struct {
     char url[128];

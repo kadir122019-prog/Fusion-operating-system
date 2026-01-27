@@ -1,5 +1,5 @@
-#include "input.h"
-#include "cpu.h"
+#include "drivers/input.h"
+#include "kernel/cpu.h"
 
 #define KBD_BUFFER_SIZE 128
 #define MOUSE_BUFFER_SIZE 256

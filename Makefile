@@ -2,10 +2,11 @@
 include config.mk
 
 # Source files
-C_SOURCES := $(filter-out $(SRCDIR)/wm.c, $(wildcard $(SRCDIR)/*.c))
+C_SOURCES := $(filter-out $(SRCDIR)/ui/wm.c, $(shell find $(SRCDIR) -type f -name '*.c'))
 KERNEL_SOURCES := kernel.c
 ALL_SOURCES := $(C_SOURCES) $(KERNEL_SOURCES)
-OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES)) $(patsubst %.c,$(BUILDDIR)/%.o,$(KERNEL_SOURCES))
+OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES)) \
+           $(patsubst %.c,$(BUILDDIR)/%.o,$(KERNEL_SOURCES))
 ISO_ROOT := $(BUILDDIR)/iso_root
 
 .PHONY: all clean distclean run limine setup
@@ -19,10 +20,12 @@ setup:
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c
 	@echo "$(COLOR_BLUE)[CC]$(COLOR_RESET) $<"
+	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILDDIR)/kernel.o: kernel.c
 	@echo "$(COLOR_BLUE)[CC]$(COLOR_RESET) $<"
+	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(KERNEL): $(OBJECTS)

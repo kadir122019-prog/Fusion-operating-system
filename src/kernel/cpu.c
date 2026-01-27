@@ -1,4 +1,4 @@
-#include "cpu.h"
+#include "kernel/cpu.h"
 
 volatile u64 ticks = 0;
 volatile u64 uptime_seconds = 0;

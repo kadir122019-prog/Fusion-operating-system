@@ -1,8 +1,8 @@
-#include "shell.h"
-#include "memory.h"
-#include "cpu.h"
-#include "net.h"
-#include "fs.h"
+#include "apps/shell.h"
+#include "kernel/memory.h"
+#include "kernel/cpu.h"
+#include "services/net.h"
+#include "services/fs.h"
 
 static void shell_prompt(shell_t *shell) {
     terminal_print(shell->term, "fusion");

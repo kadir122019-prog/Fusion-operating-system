@@ -1,4 +1,4 @@
-#include "storage.h"
+#include "services/storage.h"
 
 static const storage_entry_t entries[] = {
     {"home", 0, 1},

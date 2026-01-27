@@ -1,7 +1,7 @@
-#include "net.h"
-#include "e1000.h"
-#include "cpu.h"
-#include "memory.h"
+#include "services/net.h"
+#include "drivers/e1000.h"
+#include "kernel/cpu.h"
+#include "kernel/memory.h"
 
 #define ETH_TYPE_IPV4 0x0800
 #define ETH_TYPE_ARP  0x0806

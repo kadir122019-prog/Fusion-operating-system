@@ -2,17 +2,17 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limine.h>
-#include "gfx.h"
-#include "memory.h"
-#include "cpu.h"
-#include "interrupts.h"
-#include "input.h"
-#include "desktop.h"
-#include "net.h"
-#include "fs.h"
-#include "lapic.h"
-#include "task.h"
-#include "log.h"
+#include "drivers/gfx.h"
+#include "kernel/memory.h"
+#include "kernel/cpu.h"
+#include "kernel/interrupts.h"
+#include "drivers/input.h"
+#include "ui/desktop.h"
+#include "services/net.h"
+#include "services/fs.h"
+#include "kernel/lapic.h"
+#include "kernel/task.h"
+#include "services/log.h"
 
 extern u8 __kernel_end[];
 

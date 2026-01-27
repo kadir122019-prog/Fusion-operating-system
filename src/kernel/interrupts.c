@@ -1,11 +1,11 @@
-#include "interrupts.h"
-#include "cpu.h"
-#include "input.h"
-#include "gfx.h"
-#include "memory.h"
-#include "lapic.h"
-#include "task.h"
-#include "log.h"
+#include "kernel/interrupts.h"
+#include "kernel/cpu.h"
+#include "drivers/input.h"
+#include "drivers/gfx.h"
+#include "kernel/memory.h"
+#include "kernel/lapic.h"
+#include "kernel/task.h"
+#include "services/log.h"
 
 #define IDT_SIZE 256
 #define PIC1 0x20

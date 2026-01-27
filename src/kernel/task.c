@@ -1,7 +1,7 @@
-#include "task.h"
-#include "cpu.h"
-#include "memory.h"
-#include "lapic.h"
+#include "kernel/task.h"
+#include "kernel/cpu.h"
+#include "kernel/memory.h"
+#include "kernel/lapic.h"
 
 #define MAX_TASKS 64
 #define TASK_STACK_SIZE (32 * 1024)

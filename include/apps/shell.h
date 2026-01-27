@@ -1,8 +1,8 @@
 #ifndef SHELL_H
 #define SHELL_H
 
-#include "terminal.h"
-#include "input.h"
+#include "ui/terminal.h"
+#include "drivers/input.h"
 
 #define MAX_CMD_LEN 256
 #define MAX_ARGS 16

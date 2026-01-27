@@ -1,6 +1,6 @@
-#include "fs.h"
-#include "virtio_blk.h"
-#include "memory.h"
+#include "services/fs.h"
+#include "drivers/virtio_blk.h"
+#include "kernel/memory.h"
 
 #define FAT32_ATTR_LFN 0x0F
 #define FAT32_ATTR_DIR 0x10

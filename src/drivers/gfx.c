@@ -1,5 +1,5 @@
-#include "gfx.h"
-#include "memory.h"
+#include "drivers/gfx.h"
+#include "kernel/memory.h"
 
 static u32 *fb_ptr = 0;
 static u32 *draw_ptr = 0;

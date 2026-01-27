@@ -1,7 +1,7 @@
-#include "e1000.h"
-#include "pci.h"
-#include "interrupts.h"
-#include "memory.h"
+#include "drivers/e1000.h"
+#include "drivers/pci.h"
+#include "kernel/interrupts.h"
+#include "kernel/memory.h"
 
 #define E1000_VENDOR_ID 0x8086
 #define E1000_DEVICE_ID 0x100E

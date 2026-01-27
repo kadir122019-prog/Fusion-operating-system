@@ -1,7 +1,7 @@
-#include "virtio_blk.h"
-#include "pci.h"
-#include "cpu.h"
-#include "memory.h"
+#include "drivers/virtio_blk.h"
+#include "drivers/pci.h"
+#include "kernel/cpu.h"
+#include "kernel/memory.h"
 
 #define VIRTIO_VENDOR_ID 0x1AF4
 #define VIRTIO_BLK_DEVICE_ID 0x1001

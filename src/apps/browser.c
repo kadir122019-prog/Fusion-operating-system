@@ -1,8 +1,8 @@
-#include "browser.h"
-#include "gfx.h"
-#include "memory.h"
-#include "net.h"
-#include "cpu.h"
+#include "apps/browser.h"
+#include "drivers/gfx.h"
+#include "kernel/memory.h"
+#include "services/net.h"
+#include "kernel/cpu.h"
 
 #define BROWSER_CONTENT_CAP (64 * 1024)
 

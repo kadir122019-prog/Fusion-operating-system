@@ -1,14 +1,14 @@
-#include "desktop.h"
-#include "gfx.h"
-#include "input.h"
-#include "terminal.h"
-#include "shell.h"
-#include "file_manager.h"
-#include "memory.h"
-#include "cpu.h"
-#include "net.h"
-#include "browser.h"
-#include "interrupts.h"
+#include "ui/desktop.h"
+#include "drivers/gfx.h"
+#include "drivers/input.h"
+#include "ui/terminal.h"
+#include "apps/shell.h"
+#include "apps/file_manager.h"
+#include "kernel/memory.h"
+#include "kernel/cpu.h"
+#include "services/net.h"
+#include "apps/browser.h"
+#include "kernel/interrupts.h"
 
 #define MAX_WINDOWS 8
 #define BORDER_SIZE 2
@@ -94,6 +94,8 @@ static int resize_start_x = 0;
 static int resize_start_y = 0;
 static int resize_start_w = 0;
 static int resize_start_h = 0;
+static int drag_start_x = 0;
+static int drag_start_y = 0;
 
 static int mouse_x = 20;
 static int mouse_y = 20;
@@ -125,6 +127,8 @@ static int launcher_matches(const char *name);
 static void launcher_layout(int *lx, int *ly, int *lw, int *lh,
                             int *list_y, int *list_bottom, int *button_y);
 static const theme_t *current_theme(void);
+static int window_resize_mask(window_t *win, int x, int y);
+static void clamp_window_to_screen(window_t *win);
 
 static int theme_count(void) {
     return (int)(sizeof(themes) / sizeof(themes[0]));
@@ -238,6 +242,26 @@ static void window_content_bounds(window_t *win, int *x, int *y, int *w, int *h)
     *y = win->y + TITLE_HEIGHT;
     *w = win->w - (BORDER_SIZE * 2);
     *h = win->h - TITLE_HEIGHT - BORDER_SIZE;
+}
+
+static int window_resize_mask(window_t *win, int x, int y) {
+    int mask = 0;
+    if (x - win->x < RESIZE_MARGIN) mask |= RESIZE_LEFT;
+    if ((win->x + win->w) - x < RESIZE_MARGIN) mask |= RESIZE_RIGHT;
+    if (y - win->y < RESIZE_MARGIN) mask |= RESIZE_TOP;
+    if ((win->y + win->h) - y < RESIZE_MARGIN) mask |= RESIZE_BOTTOM;
+    return mask;
+}
+
+static void clamp_window_to_screen(window_t *win) {
+    if (win->w < MIN_WIN_W) win->w = MIN_WIN_W;
+    if (win->h < MIN_WIN_H) win->h = MIN_WIN_H;
+    if (win->x < 0) win->x = 0;
+    if (win->y < 0) win->y = 0;
+    if (win->x + win->w > (int)gfx_width()) win->x = (int)gfx_width() - win->w;
+    if (win->y + win->h > (int)gfx_height() - PANEL_HEIGHT) {
+        win->y = (int)gfx_height() - PANEL_HEIGHT - win->h;
+    }
 }
 
 static void desktop_focus_window(int index) {
@@ -652,10 +676,81 @@ static void draw_window(window_t *win) {
     }
 }
 
-static void draw_mouse_cursor_front(void) {
+static void draw_mouse_cursor(void) {
     const theme_t *theme = current_theme();
-    gfx_draw_rect_front(mouse_x, mouse_y, cursor_w, cursor_h, theme->text);
-    gfx_draw_rect_front(mouse_x + 2, mouse_y + 2, cursor_w - 4, cursor_h - 4, theme->bg_top);
+    static const u8 arrow[19][12] = {
+        {1,0,0,0,0,0,0,0,0,0,0,0},
+        {1,1,0,0,0,0,0,0,0,0,0,0},
+        {1,1,1,0,0,0,0,0,0,0,0,0},
+        {1,1,1,1,0,0,0,0,0,0,0,0},
+        {1,1,1,1,1,0,0,0,0,0,0,0},
+        {1,1,1,1,1,1,0,0,0,0,0,0},
+        {1,1,1,1,1,1,1,0,0,0,0,0},
+        {1,1,1,1,1,1,1,1,0,0,0,0},
+        {1,1,1,1,1,1,1,1,1,0,0,0},
+        {1,1,1,1,1,1,1,1,1,1,0,0},
+        {1,1,1,1,1,1,1,1,1,1,1,0},
+        {1,1,1,1,1,1,1,0,0,0,0,0},
+        {1,1,1,1,1,1,0,0,0,0,0,0},
+        {1,1,1,1,1,0,0,0,0,0,0,0},
+        {1,1,1,1,0,0,0,0,0,0,0,0},
+        {1,1,1,0,0,0,0,0,0,0,0,0},
+        {1,1,0,0,0,0,0,0,0,0,0,0},
+        {1,0,0,0,0,0,0,0,0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,0,0,0}
+    };
+    cursor_w = 12;
+    cursor_h = 19;
+    for (int y = 0; y < cursor_h; y++) {
+        for (int x = 0; x < cursor_w; x++) {
+            if (!arrow[y][x]) continue;
+            gfx_draw_rect(mouse_x + x, mouse_y + y, 1, 1, theme->text);
+        }
+    }
+}
+
+static int update_drag_resize(void) {
+    int changed = 0;
+    if (dragging_index >= 0 && (mouse_buttons & 0x1)) {
+        window_t *win = &windows[dragging_index];
+        int old_x = win->x;
+        int old_y = win->y;
+        win->x = mouse_x - drag_offset_x;
+        win->y = mouse_y - drag_offset_y;
+        if (win->x < 4) win->x = 4;
+        if (win->y < 4) win->y = 4;
+        if (win->x + win->w > (int)gfx_width() - 4) win->x = (int)gfx_width() - win->w - 4;
+        if (win->y + win->h > (int)gfx_height() - PANEL_HEIGHT - 4) {
+            win->y = (int)gfx_height() - PANEL_HEIGHT - win->h - 4;
+        }
+        if (win->x != old_x || win->y != old_y) {
+            changed = 1;
+        }
+    }
+
+    if (resizing_index >= 0 && (mouse_buttons & 0x1)) {
+        window_t *win = &windows[resizing_index];
+        int right = resize_start_x + resize_start_w;
+        int bottom = resize_start_y + resize_start_h;
+        if (resize_mask & RESIZE_LEFT) {
+            win->x = mouse_x;
+            win->w = right - win->x;
+        }
+        if (resize_mask & RESIZE_RIGHT) {
+            win->w = mouse_x - resize_start_x;
+        }
+        if (resize_mask & RESIZE_TOP) {
+            win->y = mouse_y;
+            win->h = bottom - win->y;
+        }
+        if (resize_mask & RESIZE_BOTTOM) {
+            win->h = mouse_y - resize_start_y;
+        }
+        clamp_window_to_screen(win);
+        changed = 1;
+    }
+
+    return changed;
 }
 
 static int handle_mouse_click(void) {
@@ -742,11 +837,7 @@ static int handle_mouse_click(void) {
                 return 1;
             }
 
-            int mask = 0;
-            if (mouse_x - win->x < RESIZE_MARGIN) mask |= RESIZE_LEFT;
-            if ((win->x + win->w) - mouse_x < RESIZE_MARGIN) mask |= RESIZE_RIGHT;
-            if (mouse_y - win->y < RESIZE_MARGIN) mask |= RESIZE_TOP;
-            if ((win->y + win->h) - mouse_y < RESIZE_MARGIN) mask |= RESIZE_BOTTOM;
+            int mask = window_resize_mask(win, mouse_x, mouse_y);
             if (mask) {
                 resizing_index = i;
                 resize_mask = mask;
@@ -761,6 +852,8 @@ static int handle_mouse_click(void) {
                 dragging_index = i;
                 drag_offset_x = mouse_x - win->x;
                 drag_offset_y = mouse_y - win->y;
+                drag_start_x = win->x;
+                drag_start_y = win->y;
                 return 1;
             }
 
@@ -799,52 +892,6 @@ static int handle_mouse_click(void) {
         resize_mask = 0;
     }
 
-    if (dragging_index >= 0 && (mouse_buttons & 0x1)) {
-        window_t *win = &windows[dragging_index];
-        int old_x = win->x;
-        int old_y = win->y;
-        win->x = mouse_x - drag_offset_x;
-        win->y = mouse_y - drag_offset_y;
-        if (win->x < 4) win->x = 4;
-        if (win->y < 4) win->y = 4;
-        if (win->x + win->w > (int)gfx_width() - 4) win->x = (int)gfx_width() - win->w - 4;
-        if (win->y + win->h > (int)gfx_height() - PANEL_HEIGHT - 4) {
-            win->y = (int)gfx_height() - PANEL_HEIGHT - win->h - 4;
-        }
-        if (win->x != old_x || win->y != old_y) {
-            changed = 1;
-        }
-    }
-
-    if (resizing_index >= 0 && (mouse_buttons & 0x1)) {
-        window_t *win = &windows[resizing_index];
-        int right = resize_start_x + resize_start_w;
-        int bottom = resize_start_y + resize_start_h;
-        if (resize_mask & RESIZE_LEFT) {
-            win->x = mouse_x;
-            win->w = right - win->x;
-        }
-        if (resize_mask & RESIZE_RIGHT) {
-            win->w = mouse_x - resize_start_x;
-        }
-        if (resize_mask & RESIZE_TOP) {
-            win->y = mouse_y;
-            win->h = bottom - win->y;
-        }
-        if (resize_mask & RESIZE_BOTTOM) {
-            win->h = mouse_y - resize_start_y;
-        }
-
-        if (win->w < MIN_WIN_W) win->w = MIN_WIN_W;
-        if (win->h < MIN_WIN_H) win->h = MIN_WIN_H;
-        if (win->x < 0) win->x = 0;
-        if (win->y < 0) win->y = 0;
-        if (win->x + win->w > (int)gfx_width()) win->x = (int)gfx_width() - win->w;
-        if (win->y + win->h > (int)gfx_height() - PANEL_HEIGHT) {
-            win->y = (int)gfx_height() - PANEL_HEIGHT - win->h;
-        }
-        changed = 1;
-    }
     return changed;
 }
 
@@ -1049,31 +1096,19 @@ handle_active:
             activity = 1;
         }
 
-        if (resizing_index < 0 && dragging_index < 0 && (mouse_buttons & 0x1) && active_index >= 0) {
+        if (dragging_index < 0 && resizing_index < 0 && (mouse_buttons & 0x1) && active_index >= 0) {
             window_t *win = &windows[active_index];
-            if (point_in_rect(mouse_x, mouse_y, win->x, win->y, win->w, win->h)) {
-                int mask = 0;
-                if (mouse_x - win->x < RESIZE_MARGIN) mask |= RESIZE_LEFT;
-                if ((win->x + win->w) - mouse_x < RESIZE_MARGIN) mask |= RESIZE_RIGHT;
-                if (mouse_y - win->y < RESIZE_MARGIN) mask |= RESIZE_TOP;
-                if ((win->y + win->h) - mouse_y < RESIZE_MARGIN) mask |= RESIZE_BOTTOM;
-                if (mask) {
-                    resizing_index = active_index;
-                    resize_mask = mask;
-                    resize_start_x = win->x;
-                    resize_start_y = win->y;
-                    resize_start_w = win->w;
-                    resize_start_h = win->h;
+            if (point_in_rect(mouse_x, mouse_y, win->x, win->y, win->w, TITLE_HEIGHT)) {
+                int mask = window_resize_mask(win, mouse_x, mouse_y);
+                if (!mask) {
+                    dragging_index = active_index;
+                    drag_offset_x = mouse_x - win->x;
+                    drag_offset_y = mouse_y - win->y;
+                    drag_start_x = win->x;
+                    drag_start_y = win->y;
                 }
             }
         }
-
-        if (ticks == last_tick) {
-            // If the timer IRQ stalls, keep polling input so mouse/keyboard still work.
-            asm volatile("pause");
-            continue;
-        }
-        last_tick = ticks;
 
         if (uptime_seconds != last_uptime) {
             last_uptime = uptime_seconds;
@@ -1089,6 +1124,25 @@ handle_active:
             }
             prev_mouse_buttons = mouse_buttons;
         }
+
+        if (update_drag_resize()) {
+            dirty_full = 1;
+            cursor_dirty = 1;
+            activity = 1;
+        }
+
+        if (cursor_dirty && !dirty_full && !dirty_panel && dirty_window < 0) {
+            dirty_full = 1;
+        }
+
+        if (ticks == last_tick) {
+            // If the timer IRQ stalls, keep polling input so mouse/keyboard still work.
+            if (!activity) {
+                asm volatile("pause");
+                continue;
+            }
+        }
+        last_tick = ticks;
 
         int need_render = dirty_full || dirty_panel || dirty_window >= 0 || cursor_dirty || overlay_dirty;
         if (!activity && !need_render) {
@@ -1119,6 +1173,7 @@ handle_active:
                 draw_debug_overlay(fps_value);
                 overlay_dirty = 0;
             }
+            draw_mouse_cursor();
             gfx_present();
             dirty_full = 0;
             dirty_panel = 0;
@@ -1147,20 +1202,17 @@ handle_active:
             presented = 1;
         }
 
-        if (cursor_dirty) {
-            gfx_present_rect(prev_cursor_x, prev_cursor_y, cursor_w, cursor_h);
-            draw_mouse_cursor_front();
-            prev_cursor_x = mouse_x;
-            prev_cursor_y = mouse_y;
-            cursor_dirty = 0;
-            presented = 1;
-        }
-
         if (!did_full && settings.debug_overlay && overlay_dirty) {
             draw_debug_overlay(fps_value);
             gfx_present_rect(8, 8, 220, 92);
             overlay_dirty = 0;
             presented = 1;
+        }
+
+        if (did_full) {
+            prev_cursor_x = mouse_x;
+            prev_cursor_y = mouse_y;
+            cursor_dirty = 0;
         }
 
         if (presented) {

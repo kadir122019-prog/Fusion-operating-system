@@ -1,4 +1,4 @@
-#include "memory.h"
+#include "kernel/memory.h"
 #include <limine.h>
 
 static u8 heap[HEAP_SIZE];

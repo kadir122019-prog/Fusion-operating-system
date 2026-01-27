@@ -2,8 +2,8 @@
 #define FILE_MANAGER_H
 
 #include "types.h"
-#include "input.h"
-#include "fs.h"
+#include "drivers/input.h"
+#include "services/fs.h"
 
 typedef struct {
     char path[128];

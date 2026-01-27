@@ -1,5 +1,5 @@
-#include "pci.h"
-#include "cpu.h"
+#include "drivers/pci.h"
+#include "kernel/cpu.h"
 
 #define PCI_CONFIG_ADDR 0xCF8
 #define PCI_CONFIG_DATA 0xCFC
