@@ -19,6 +19,7 @@ void gfx_draw_text_clipped(const char *s, int x, int y, u32 color,
                            int clip_x, int clip_y, int clip_w, int clip_h);
 void gfx_present(void);
 void gfx_present_rect(int x, int y, int w, int h);
+int gfx_backbuffer_enabled(void);
 
 u64 gfx_width(void);
 u64 gfx_height(void);

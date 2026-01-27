@@ -127,8 +127,11 @@ static int launcher_matches(const char *name);
 static void launcher_layout(int *lx, int *ly, int *lw, int *lh,
                             int *list_y, int *list_bottom, int *button_y);
 static const theme_t *current_theme(void);
+static int point_in_rect(int x, int y, int rx, int ry, int rw, int rh);
 static int window_resize_mask(window_t *win, int x, int y);
 static void clamp_window_to_screen(window_t *win);
+static int find_top_window_at(int x, int y);
+static int desktop_raise_window(int index);
 
 static int theme_count(void) {
     return (int)(sizeof(themes) / sizeof(themes[0]));
@@ -264,6 +267,38 @@ static void clamp_window_to_screen(window_t *win) {
     }
 }
 
+static int find_top_window_at(int x, int y) {
+    for (int i = window_count - 1; i >= 0; i--) {
+        if (windows[i].minimized) continue;
+        if (point_in_rect(x, y, windows[i].x, windows[i].y, windows[i].w, windows[i].h)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int desktop_raise_window(int index) {
+    if (index < 0 || index >= window_count) return index;
+    if (index == window_count - 1) return index;
+
+    window_t temp = windows[index];
+    for (int i = index; i < window_count - 1; i++) {
+        windows[i] = windows[i + 1];
+    }
+    windows[window_count - 1] = temp;
+
+    if (active_index == index) active_index = window_count - 1;
+    else if (active_index > index) active_index--;
+
+    if (dragging_index == index) dragging_index = window_count - 1;
+    else if (dragging_index > index) dragging_index--;
+
+    if (resizing_index == index) resizing_index = window_count - 1;
+    else if (resizing_index > index) resizing_index--;
+
+    return window_count - 1;
+}
+
 static void desktop_focus_window(int index) {
     if (index < 0 || index >= window_count) return;
     for (int i = 0; i < window_count; i++) windows[i].active = 0;
@@ -273,6 +308,14 @@ static void desktop_focus_window(int index) {
     }
     windows[index].active = 1;
     active_index = index;
+}
+
+static void desktop_activate_window(int index, int raise) {
+    if (index < 0 || index >= window_count) return;
+    if (raise) {
+        index = desktop_raise_window(index);
+    }
+    desktop_focus_window(index);
 }
 
 static void desktop_focus_next(int dir) {
@@ -505,7 +548,7 @@ static void apply_cursor_settings(void) {
         cursor_h = 12;
     } else {
         cursor_w = 12;
-        cursor_h = 18;
+        cursor_h = 19;
     }
 }
 
@@ -676,9 +719,24 @@ static void draw_window(window_t *win) {
     }
 }
 
-static void draw_mouse_cursor(void) {
+static void cursor_bounds(int x, int y, int w, int h, int *bx, int *by, int *bw, int *bh) {
+    int x0 = x - 1;
+    int y0 = y - 1;
+    int x1 = x + w + 1;
+    int y1 = y + h + 1;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > (int)gfx_width()) x1 = (int)gfx_width();
+    if (y1 > (int)gfx_height()) y1 = (int)gfx_height();
+    *bx = x0;
+    *by = y0;
+    *bw = x1 - x0;
+    *bh = y1 - y0;
+}
+
+static void draw_mouse_cursor_common(int front) {
     const theme_t *theme = current_theme();
-    static const u8 arrow[19][12] = {
+    static const u8 arrow_large[19][12] = {
         {1,0,0,0,0,0,0,0,0,0,0,0},
         {1,1,0,0,0,0,0,0,0,0,0,0},
         {1,1,1,0,0,0,0,0,0,0,0,0},
@@ -699,14 +757,67 @@ static void draw_mouse_cursor(void) {
         {1,0,0,0,0,0,0,0,0,0,0,0},
         {0,0,0,0,0,0,0,0,0,0,0,0}
     };
-    cursor_w = 12;
-    cursor_h = 19;
-    for (int y = 0; y < cursor_h; y++) {
-        for (int x = 0; x < cursor_w; x++) {
-            if (!arrow[y][x]) continue;
-            gfx_draw_rect(mouse_x + x, mouse_y + y, 1, 1, theme->text);
+    static const u8 arrow_small[12][8] = {
+        {1,0,0,0,0,0,0,0},
+        {1,1,0,0,0,0,0,0},
+        {1,1,1,0,0,0,0,0},
+        {1,1,1,1,0,0,0,0},
+        {1,1,1,1,1,0,0,0},
+        {1,1,1,1,1,1,0,0},
+        {1,1,1,1,0,0,0,0},
+        {1,1,1,0,0,0,0,0},
+        {1,1,0,0,0,0,0,0},
+        {1,0,0,0,0,0,0,0},
+        {0,0,0,0,0,0,0,0},
+        {0,0,0,0,0,0,0,0}
+    };
+
+    const u8 *bits = &arrow_large[0][0];
+    int w = 12;
+    int h = 19;
+    if (settings.cursor_size == 0) {
+        bits = &arrow_small[0][0];
+        w = 8;
+        h = 12;
+    }
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            if (!bits[y * w + x]) continue;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    int nx = x + dx;
+                    int ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    if (bits[ny * w + nx]) continue;
+                    if (front) {
+                        gfx_draw_rect_front(mouse_x + nx, mouse_y + ny, 1, 1, theme->text_muted);
+                    } else {
+                        gfx_draw_rect(mouse_x + nx, mouse_y + ny, 1, 1, theme->text_muted);
+                    }
+                }
+            }
         }
     }
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            if (!bits[y * w + x]) continue;
+            if (front) {
+                gfx_draw_rect_front(mouse_x + x, mouse_y + y, 1, 1, theme->text);
+            } else {
+                gfx_draw_rect(mouse_x + x, mouse_y + y, 1, 1, theme->text);
+            }
+        }
+    }
+}
+
+static void draw_mouse_cursor(void) {
+    draw_mouse_cursor_common(0);
+}
+
+static void draw_mouse_cursor_front(void) {
+    draw_mouse_cursor_common(1);
 }
 
 static int update_drag_resize(void) {
@@ -819,27 +930,23 @@ static int handle_mouse_click(void) {
             }
         }
 
-        for (int i = window_count - 1; i >= 0; i--) {
-            window_t *win = &windows[i];
-            if (win->minimized) continue;
-            if (!point_in_rect(mouse_x, mouse_y, win->x, win->y, win->w, win->h)) {
-                continue;
-            }
-            if (active_index != i) {
-                desktop_focus_window(i);
-                changed = 1;
-            }
+        int hit = find_top_window_at(mouse_x, mouse_y);
+        if (hit >= 0) {
+            hit = desktop_raise_window(hit);
+            desktop_activate_window(hit, 0);
+            changed = 1;
 
+            window_t *win = &windows[hit];
             int close_x = win->x + win->w - CLOSE_SIZE - 6;
             int close_y = win->y + 5;
             if (point_in_rect(mouse_x, mouse_y, close_x, close_y, CLOSE_SIZE, CLOSE_SIZE)) {
-                desktop_close_window(i);
+                desktop_close_window(hit);
                 return 1;
             }
 
             int mask = window_resize_mask(win, mouse_x, mouse_y);
             if (mask) {
-                resizing_index = i;
+                resizing_index = hit;
                 resize_mask = mask;
                 resize_start_x = win->x;
                 resize_start_y = win->y;
@@ -849,7 +956,7 @@ static int handle_mouse_click(void) {
             }
 
             if (point_in_rect(mouse_x, mouse_y, win->x, win->y, win->w, TITLE_HEIGHT)) {
-                dragging_index = i;
+                dragging_index = hit;
                 drag_offset_x = mouse_x - win->x;
                 drag_offset_y = mouse_y - win->y;
                 drag_start_x = win->x;
@@ -1096,20 +1203,6 @@ handle_active:
             activity = 1;
         }
 
-        if (dragging_index < 0 && resizing_index < 0 && (mouse_buttons & 0x1) && active_index >= 0) {
-            window_t *win = &windows[active_index];
-            if (point_in_rect(mouse_x, mouse_y, win->x, win->y, win->w, TITLE_HEIGHT)) {
-                int mask = window_resize_mask(win, mouse_x, mouse_y);
-                if (!mask) {
-                    dragging_index = active_index;
-                    drag_offset_x = mouse_x - win->x;
-                    drag_offset_y = mouse_y - win->y;
-                    drag_start_x = win->x;
-                    drag_start_y = win->y;
-                }
-            }
-        }
-
         if (uptime_seconds != last_uptime) {
             last_uptime = uptime_seconds;
             dirty_panel = 1;
@@ -1131,8 +1224,10 @@ handle_active:
             activity = 1;
         }
 
-        if (cursor_dirty && !dirty_full && !dirty_panel && dirty_window < 0) {
-            dirty_full = 1;
+        if (!gfx_backbuffer_enabled()) {
+            if (cursor_dirty && !dirty_full && !dirty_panel && dirty_window < 0) {
+                dirty_full = 1;
+            }
         }
 
         if (ticks == last_tick) {
@@ -1173,7 +1268,6 @@ handle_active:
                 draw_debug_overlay(fps_value);
                 overlay_dirty = 0;
             }
-            draw_mouse_cursor();
             gfx_present();
             dirty_full = 0;
             dirty_panel = 0;
@@ -1209,7 +1303,21 @@ handle_active:
             presented = 1;
         }
 
-        if (did_full) {
+        if (gfx_backbuffer_enabled()) {
+            if (did_full || cursor_dirty) {
+                if (!did_full) {
+                    int bx, by, bw, bh;
+                    cursor_bounds(prev_cursor_x, prev_cursor_y, cursor_w, cursor_h, &bx, &by, &bw, &bh);
+                    gfx_present_rect(bx, by, bw, bh);
+                }
+                draw_mouse_cursor_front();
+                prev_cursor_x = mouse_x;
+                prev_cursor_y = mouse_y;
+                cursor_dirty = 0;
+                presented = 1;
+            }
+        } else if (did_full) {
+            draw_mouse_cursor();
             prev_cursor_x = mouse_x;
             prev_cursor_y = mouse_y;
             cursor_dirty = 0;

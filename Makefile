@@ -75,7 +75,7 @@ $(ISO): $(KERNEL) limine
 
 run: $(ISO)
 	@echo "$(COLOR_BLUE)Starting QEMU...$(COLOR_RESET)"
-	@./run.sh
+	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -smp 1 -serial stdio
 
 clean:
 	@echo "$(COLOR_YELLOW)Cleaning build artifacts...$(COLOR_RESET)"

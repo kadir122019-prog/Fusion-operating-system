@@ -292,3 +292,7 @@ void gfx_present_rect(int x, int y, int w, int h) {
         memcpy(dst, src, row_bytes);
     }
 }
+
+int gfx_backbuffer_enabled(void) {
+    return (draw_ptr && fb_ptr && draw_ptr != fb_ptr);
+}

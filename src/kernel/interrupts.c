@@ -6,6 +6,7 @@
 #include "kernel/lapic.h"
 #include "kernel/task.h"
 #include "services/log.h"
+#include "drivers/serial.h"
 
 #define IDT_SIZE 256
 #define PIC1 0x20
@@ -45,9 +46,40 @@ static void *irq_contexts[16];
 static volatile u64 irq_counts[16];
 static void (*vector_handlers[IDT_SIZE])(void);
 
-static void fatal_halt(void) {
+static void serial_write_hex(u64 value) {
+    char buf[19];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 16; i++) {
+        u8 nibble = (u8)((value >> ((15 - i) * 4)) & 0xF);
+        buf[2 + i] = (nibble < 10) ? (char)('0' + nibble) : (char)('a' + (nibble - 10));
+    }
+    buf[18] = 0;
+    serial_write_str(buf);
+}
+
+static void fatal_exception(int vector, struct interrupt_frame *frame, u64 error_code, int has_error) {
     asm volatile("cli");
-    panic(__FILE__, __LINE__, "Unhandled exception");
+    serial_write_str("[PANIC] unhandled exception vector=");
+    serial_write_hex((u64)vector);
+    serial_write_str("\n  RIP=");
+    serial_write_hex(frame->rip);
+    serial_write_str("  RSP=");
+    serial_write_hex(frame->rsp);
+    serial_write_str("\n  RFLAGS=");
+    serial_write_hex(frame->rflags);
+    serial_write_str("  CS=");
+    serial_write_hex(frame->cs);
+    serial_write_str("  SS=");
+    serial_write_hex(frame->ss);
+    if (has_error) {
+        serial_write_str("\n  ERROR=");
+        serial_write_hex(error_code);
+    }
+    serial_write_str("\n");
+    while (1) {
+        asm volatile("hlt");
+    }
 }
 
 static void idt_set_gate(int n, void (*handler)(void)) {
@@ -110,16 +142,54 @@ static void irq_dispatch(int irq) {
 
 __attribute__((interrupt))
 static void isr_default_noerr(struct interrupt_frame *frame) {
-    (void)frame;
-    fatal_halt();
+    fatal_exception(-1, frame, 0, 0);
 }
 
 __attribute__((interrupt))
 static void isr_default_err(struct interrupt_frame *frame, u64 error_code) {
-    (void)frame;
-    (void)error_code;
-    fatal_halt();
+    fatal_exception(-1, frame, error_code, 1);
 }
+
+static void exception_noerr(int vector, struct interrupt_frame *frame) {
+    fatal_exception(vector, frame, 0, 0);
+}
+
+static void exception_err(int vector, struct interrupt_frame *frame, u64 error_code) {
+    fatal_exception(vector, frame, error_code, 1);
+}
+
+__attribute__((interrupt)) static void isr_ex_0(struct interrupt_frame *frame) { exception_noerr(0, frame); }
+__attribute__((interrupt)) static void isr_ex_1(struct interrupt_frame *frame) { exception_noerr(1, frame); }
+__attribute__((interrupt)) static void isr_ex_2(struct interrupt_frame *frame) { exception_noerr(2, frame); }
+__attribute__((interrupt)) static void isr_ex_3(struct interrupt_frame *frame) { exception_noerr(3, frame); }
+__attribute__((interrupt)) static void isr_ex_4(struct interrupt_frame *frame) { exception_noerr(4, frame); }
+__attribute__((interrupt)) static void isr_ex_5(struct interrupt_frame *frame) { exception_noerr(5, frame); }
+__attribute__((interrupt)) static void isr_ex_6(struct interrupt_frame *frame) { exception_noerr(6, frame); }
+__attribute__((interrupt)) static void isr_ex_7(struct interrupt_frame *frame) { exception_noerr(7, frame); }
+__attribute__((interrupt)) static void isr_ex_8(struct interrupt_frame *frame, u64 error) { exception_err(8, frame, error); }
+__attribute__((interrupt)) static void isr_ex_9(struct interrupt_frame *frame) { exception_noerr(9, frame); }
+__attribute__((interrupt)) static void isr_ex_10(struct interrupt_frame *frame, u64 error) { exception_err(10, frame, error); }
+__attribute__((interrupt)) static void isr_ex_11(struct interrupt_frame *frame, u64 error) { exception_err(11, frame, error); }
+__attribute__((interrupt)) static void isr_ex_12(struct interrupt_frame *frame, u64 error) { exception_err(12, frame, error); }
+__attribute__((interrupt)) static void isr_ex_13(struct interrupt_frame *frame, u64 error) { exception_err(13, frame, error); }
+__attribute__((interrupt)) static void isr_ex_14(struct interrupt_frame *frame, u64 error) { exception_err(14, frame, error); }
+__attribute__((interrupt)) static void isr_ex_15(struct interrupt_frame *frame) { exception_noerr(15, frame); }
+__attribute__((interrupt)) static void isr_ex_16(struct interrupt_frame *frame) { exception_noerr(16, frame); }
+__attribute__((interrupt)) static void isr_ex_17(struct interrupt_frame *frame, u64 error) { exception_err(17, frame, error); }
+__attribute__((interrupt)) static void isr_ex_18(struct interrupt_frame *frame) { exception_noerr(18, frame); }
+__attribute__((interrupt)) static void isr_ex_19(struct interrupt_frame *frame) { exception_noerr(19, frame); }
+__attribute__((interrupt)) static void isr_ex_20(struct interrupt_frame *frame) { exception_noerr(20, frame); }
+__attribute__((interrupt)) static void isr_ex_21(struct interrupt_frame *frame, u64 error) { exception_err(21, frame, error); }
+__attribute__((interrupt)) static void isr_ex_22(struct interrupt_frame *frame) { exception_noerr(22, frame); }
+__attribute__((interrupt)) static void isr_ex_23(struct interrupt_frame *frame) { exception_noerr(23, frame); }
+__attribute__((interrupt)) static void isr_ex_24(struct interrupt_frame *frame) { exception_noerr(24, frame); }
+__attribute__((interrupt)) static void isr_ex_25(struct interrupt_frame *frame) { exception_noerr(25, frame); }
+__attribute__((interrupt)) static void isr_ex_26(struct interrupt_frame *frame) { exception_noerr(26, frame); }
+__attribute__((interrupt)) static void isr_ex_27(struct interrupt_frame *frame) { exception_noerr(27, frame); }
+__attribute__((interrupt)) static void isr_ex_28(struct interrupt_frame *frame) { exception_noerr(28, frame); }
+__attribute__((interrupt)) static void isr_ex_29(struct interrupt_frame *frame) { exception_noerr(29, frame); }
+__attribute__((interrupt)) static void isr_ex_30(struct interrupt_frame *frame, u64 error) { exception_err(30, frame, error); }
+__attribute__((interrupt)) static void isr_ex_31(struct interrupt_frame *frame) { exception_noerr(31, frame); }
 
 __attribute__((interrupt))
 static void isr_irq2(struct interrupt_frame *frame) { (void)frame; irq_dispatch(2); }
@@ -254,15 +324,20 @@ static void interrupts_setup_idt(void) {
         idt_set_gate(i, (void (*)(void))isr_default_noerr);
     }
 
-    idt_set_gate(8, (void (*)(void))isr_default_err);
-    idt_set_gate(10, (void (*)(void))isr_default_err);
-    idt_set_gate(11, (void (*)(void))isr_default_err);
-    idt_set_gate(12, (void (*)(void))isr_default_err);
-    idt_set_gate(13, (void (*)(void))isr_default_err);
-    idt_set_gate(14, (void (*)(void))isr_default_err);
-    idt_set_gate(17, (void (*)(void))isr_default_err);
-    idt_set_gate(21, (void (*)(void))isr_default_err);
-    idt_set_gate(30, (void (*)(void))isr_default_err);
+    static void (*const exception_handlers[32])(void) = {
+        (void (*)(void))isr_ex_0,  (void (*)(void))isr_ex_1,  (void (*)(void))isr_ex_2,  (void (*)(void))isr_ex_3,
+        (void (*)(void))isr_ex_4,  (void (*)(void))isr_ex_5,  (void (*)(void))isr_ex_6,  (void (*)(void))isr_ex_7,
+        (void (*)(void))isr_ex_8,  (void (*)(void))isr_ex_9,  (void (*)(void))isr_ex_10, (void (*)(void))isr_ex_11,
+        (void (*)(void))isr_ex_12, (void (*)(void))isr_ex_13, (void (*)(void))isr_ex_14, (void (*)(void))isr_ex_15,
+        (void (*)(void))isr_ex_16, (void (*)(void))isr_ex_17, (void (*)(void))isr_ex_18, (void (*)(void))isr_ex_19,
+        (void (*)(void))isr_ex_20, (void (*)(void))isr_ex_21, (void (*)(void))isr_ex_22, (void (*)(void))isr_ex_23,
+        (void (*)(void))isr_ex_24, (void (*)(void))isr_ex_25, (void (*)(void))isr_ex_26, (void (*)(void))isr_ex_27,
+        (void (*)(void))isr_ex_28, (void (*)(void))isr_ex_29, (void (*)(void))isr_ex_30, (void (*)(void))isr_ex_31
+    };
+
+    for (int i = 0; i < 32; i++) {
+        idt_set_gate(i, exception_handlers[i]);
+    }
 
     idt_set_gate(32, (void (*)(void))isr_timer);
     idt_set_gate(33, (void (*)(void))isr_keyboard);
