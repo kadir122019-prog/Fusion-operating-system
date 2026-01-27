@@ -280,6 +280,12 @@ void gfx_present_rect(int x, int y, int w, int h) {
 
     u64 stride = fb_pitch / 4;
     size_t row_bytes = (size_t)rw * 4;
+    if (x0 == 0 && rw == (int)fb_width) {
+        u32 *src = draw_ptr + (u64)y0 * stride;
+        u32 *dst = fb_ptr + (u64)y0 * stride;
+        memcpy(dst, src, (size_t)rh * fb_pitch);
+        return;
+    }
     for (int py = 0; py < rh; py++) {
         u32 *src = draw_ptr + (u64)(y0 + py) * stride + x0;
         u32 *dst = fb_ptr + (u64)(y0 + py) * stride + x0;
