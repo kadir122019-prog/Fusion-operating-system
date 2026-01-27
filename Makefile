@@ -6,6 +6,7 @@ C_SOURCES := $(filter-out $(SRCDIR)/wm.c, $(wildcard $(SRCDIR)/*.c))
 KERNEL_SOURCES := kernel.c
 ALL_SOURCES := $(C_SOURCES) $(KERNEL_SOURCES)
 OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES)) $(patsubst %.c,$(BUILDDIR)/%.o,$(KERNEL_SOURCES))
+ISO_ROOT := $(BUILDDIR)/iso_root
 
 .PHONY: all clean distclean run limine setup
 
@@ -51,22 +52,22 @@ limine:
 
 $(ISO): $(KERNEL) limine
 	@echo "$(COLOR_GREEN)[ISO]$(COLOR_RESET) Creating bootable ISO..."
-	@rm -rf iso_root
-	@mkdir -p iso_root/boot iso_root/boot/limine iso_root/EFI/BOOT
-	@cp $(KERNEL) iso_root/boot/
-	@cp $(BOOTDIR)/limine.conf iso_root/boot/limine/limine.conf
-	@cp $(BOOTDIR)/limine.cfg iso_root/boot/limine/limine.cfg
-	@cp $(BOOTDIR)/limine.conf iso_root/boot/limine.conf
-	@cp $(BOOTDIR)/limine.cfg iso_root/boot/limine.cfg
-	@cp $(BOOTDIR)/limine.conf iso_root/limine.conf
-	@cp $(BOOTDIR)/limine.cfg iso_root/limine.cfg
+	@rm -rf $(ISO_ROOT)
+	@mkdir -p $(ISO_ROOT)/boot $(ISO_ROOT)/boot/limine $(ISO_ROOT)/EFI/BOOT
+	@cp $(KERNEL) $(ISO_ROOT)/boot/
+	@cp $(BOOTDIR)/limine.conf $(ISO_ROOT)/boot/limine/limine.conf
+	@cp $(BOOTDIR)/limine.cfg $(ISO_ROOT)/boot/limine/limine.cfg
+	@cp $(BOOTDIR)/limine.conf $(ISO_ROOT)/boot/limine.conf
+	@cp $(BOOTDIR)/limine.cfg $(ISO_ROOT)/boot/limine.cfg
+	@cp $(BOOTDIR)/limine.conf $(ISO_ROOT)/limine.conf
+	@cp $(BOOTDIR)/limine.cfg $(ISO_ROOT)/limine.cfg
 	@cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
-	   $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/boot/limine/
-	@cp $(LIMINE_DIR)/BOOTX64.EFI iso_root/EFI/BOOT/
+	   $(LIMINE_DIR)/limine-uefi-cd.bin $(ISO_ROOT)/boot/limine/
+	@cp $(LIMINE_DIR)/BOOTX64.EFI $(ISO_ROOT)/EFI/BOOT/
 	@xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin \
 	        -no-emul-boot -boot-load-size 4 -boot-info-table \
 	        -eltorito-alt-boot -e boot/limine/limine-uefi-cd.bin -no-emul-boot \
-	        iso_root -o $(ISO) 2>&1 | grep -v "xorriso :" || true
+	        $(ISO_ROOT) -o $(ISO) 2>&1 | grep -v "xorriso :" || true
 	@echo "$(COLOR_GREEN)✓ ISO created: $(ISO)$(COLOR_RESET)"
 
 run: $(ISO)
@@ -76,7 +77,7 @@ run: $(ISO)
 clean:
 	@echo "$(COLOR_YELLOW)Cleaning build artifacts...$(COLOR_RESET)"
 	@rm -f $(OBJECTS) $(KERNEL) $(ISO)
-	@rm -rf iso_root $(BUILDDIR)
+	@rm -rf $(ISO_ROOT) $(BUILDDIR)
 
 distclean: clean
 	@echo "$(COLOR_YELLOW)Removing Limine...$(COLOR_RESET)"

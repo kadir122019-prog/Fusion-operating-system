@@ -1,17 +1,35 @@
 # Fusion
-Fusion is a open-source project backed by GPL 2.0
-Fusion is an operating System in development this project started on the 20th of Jannuary 2026 
-I started working on this around August of 2024 i scrapped a lot of ideas and began from scratch i wanted to make a OS inspired by linux that can be modified by youre liking instead of just making the kernel i used all of my knowledge and began coding like crazy im not planning to stop any time soon any person that wants to modify it can but please dont try selling this project or marketing as yours. Thank you from r1pper
+Fusion is an open-source operating system project (GPLv2). This repository is focused on kernel bring-up on x86_64 using the Limine bootloader.
 
-#About me
-Im a 14 y.o. self made DEV from austria 
-Fluent in:
-C
-Asm
-C++
-C#
-Python
-Java
-Ruby
-Rust
-Go
+## Build dependencies
+- `gcc`, `ld`, `nasm`, `make`, `curl`
+- `xorriso` (ISO creation)
+- `qemu-system-x86_64` (optional, for running)
+
+On Arch:
+```
+sudo pacman -S --needed base-devel gcc binutils nasm curl xorriso qemu-system-x86
+```
+
+## Build
+```
+make clean
+make all
+```
+
+Build outputs:
+- Kernel: `build/kernel.elf`
+- ISO: `build/fusion.iso`
+
+## Run (QEMU)
+```
+make run
+```
+
+Or:
+```
+qemu-system-x86_64 -cdrom build/fusion.iso -m 256M -smp 2 -serial stdio
+```
+
+## Docs
+See the `docs/` folder for boot flow, memory assumptions, coding conventions, and the roadmap.

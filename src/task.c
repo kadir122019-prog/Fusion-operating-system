@@ -59,6 +59,8 @@ static spinlock_t sched_lock;
 static volatile int scheduler_active = 0;
 static u32 lapic_map[256];
 static u32 lapic_map_count = 0;
+static u16 kernel_cs = 0x28;
+static u16 kernel_ds = 0x30;
 
 static int cpu_index(void) {
     u32 id = lapic_id();
@@ -72,7 +74,7 @@ static u64 task_build_stack(void *stack, void (*entry)(void)) {
     sp = (u64 *)((uintptr_t)sp & ~0xFULL);
 
     *--sp = 0x202;        // RFLAGS
-    *--sp = 0x28;         // CS (kernel code selector)
+    *--sp = kernel_cs;    // CS (kernel code selector)
     *--sp = (u64)entry;   // RIP
 
     *--sp = 0; // RAX
@@ -96,12 +98,12 @@ static u64 task_build_stack(void *stack, void (*entry)(void)) {
 
 static void task_trampoline(void) {
     asm volatile(
-        "movw $0x30, %%ax\n"
+        "movw %0, %%ax\n"
         "movw %%ax, %%ds\n"
         "movw %%ax, %%es\n"
         "movw %%ax, %%ss\n"
         :
-        :
+        : "r"(kernel_ds)
         : "ax"
     );
     int cpu = cpu_index();
@@ -171,6 +173,8 @@ static task_t *task_pick_next(int cpu) {
 }
 
 void task_init(u32 cpu_count) {
+    asm volatile("mov %%cs, %0" : "=r"(kernel_cs));
+    asm volatile("mov %%ds, %0" : "=r"(kernel_ds));
     for (int i = 0; i < MAX_TASKS; i++) {
         tasks[i].state = TASK_UNUSED;
         tasks[i].stack = 0;
@@ -192,7 +196,7 @@ void task_init(u32 cpu_count) {
             tasks[idx].is_idle = 1;
         }
     }
-    scheduler_active = 1;
+    scheduler_active = 0;
 }
 
 void task_register_cpu(u32 lapic_id, u32 index) {
@@ -236,10 +240,24 @@ int task_create_affinity(const char *name, task_entry_t entry, void *arg, int cp
 }
 
 void task_start_bsp(void) {
+    int cpu = 0;
+    if (idle_index[cpu] >= 0) {
+        current_task[cpu] = &tasks[idle_index[cpu]];
+        current_task[cpu]->state = TASK_RUNNING;
+        current_task[cpu]->running_cpu = lapic_id();
+    }
+    scheduler_active = 1;
     task_yield();
 }
 
 void task_start_ap(void) {
+    int cpu = cpu_index();
+    if (idle_index[cpu] >= 0) {
+        current_task[cpu] = &tasks[idle_index[cpu]];
+        current_task[cpu]->state = TASK_RUNNING;
+        current_task[cpu]->running_cpu = lapic_id();
+    }
+    scheduler_active = 1;
     task_yield();
 }
 
@@ -320,7 +338,7 @@ u64 task_schedule_isr(u64 rsp) {
         u64 *frame = (u64 *)next_rsp;
         u64 rip = frame[15];
         u64 cs = frame[16];
-        if (cs != 0x28 || (rip & 0xFFFF800000000000ull) != 0xFFFF800000000000ull) {
+        if (cs != kernel_cs || (rip & 0xFFFF800000000000ull) != 0xFFFF800000000000ull) {
             next_rsp = rsp;
         }
     } else {

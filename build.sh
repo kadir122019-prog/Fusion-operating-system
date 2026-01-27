@@ -4,11 +4,15 @@ set -e
 
 echo "=== Fusion OS Build Script ==="
 
-if ! command -v x86_64-elf-gcc &> /dev/null; then
-    echo "Error: x86_64-elf-gcc not found"
-    echo "Install cross-compiler toolchain first"
-    echo "On Ubuntu/Debian: sudo apt install gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu"
-    echo "Or build from source: https://wiki.osdev.org/GCC_Cross-Compiler"
+if ! command -v gcc &> /dev/null; then
+    echo "Error: gcc not found"
+    echo "Install a native toolchain (gcc, binutils) first"
+    exit 1
+fi
+
+if ! command -v nasm &> /dev/null; then
+    echo "Error: nasm not found"
+    echo "Install with: sudo apt install nasm"
     exit 1
 fi
 
@@ -24,6 +28,6 @@ make all
 
 echo ""
 echo "=== Build Complete ==="
-echo "ISO created: fusion.iso"
+echo "ISO created: build/fusion.iso"
 echo "Run with: make run"
-echo "Or boot with: qemu-system-x86_64 -cdrom fusion.iso"
+echo "Or boot with: qemu-system-x86_64 -cdrom build/fusion.iso"

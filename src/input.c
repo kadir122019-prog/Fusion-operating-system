@@ -2,10 +2,15 @@
 #include "cpu.h"
 
 #define KBD_BUFFER_SIZE 128
+#define MOUSE_BUFFER_SIZE 256
 
 static volatile u8 scancode_buf[KBD_BUFFER_SIZE];
 static volatile u8 scancode_head = 0;
 static volatile u8 scancode_tail = 0;
+
+static volatile u8 mouse_buf[MOUSE_BUFFER_SIZE];
+static volatile u8 mouse_head = 0;
+static volatile u8 mouse_tail = 0;
 
 static int mouse_x = 0;
 static int mouse_y = 0;
@@ -82,8 +87,26 @@ static int pop_scancode(u8 *scancode) {
     return 1;
 }
 
+static void push_mouse_byte(u8 data) {
+    u8 next = (u8)(mouse_head + 1) % MOUSE_BUFFER_SIZE;
+    if (next == mouse_tail) return;
+    mouse_buf[mouse_head] = data;
+    mouse_head = next;
+}
+
+static int pop_mouse_byte(u8 *data) {
+    if (mouse_tail == mouse_head) return 0;
+    *data = mouse_buf[mouse_tail];
+    mouse_tail = (u8)(mouse_tail + 1) % MOUSE_BUFFER_SIZE;
+    return 1;
+}
+
 void input_handle_scancode(u8 scancode) {
     push_scancode(scancode);
+}
+
+void input_handle_mouse_byte(u8 data) {
+    push_mouse_byte(data);
 }
 
 void input_init(void) {
@@ -194,12 +217,17 @@ static int mouse_read(u8 *data) {
     return 1;
 }
 
+static int mouse_get_byte(u8 *data) {
+    if (pop_mouse_byte(data)) return 1;
+    return mouse_read(data);
+}
+
 int input_poll_mouse(mouse_event_t *event) {
     static u8 packet[3];
     static int packet_index = 0;
 
     u8 data;
-    while (mouse_read(&data)) {
+    while (mouse_get_byte(&data)) {
         if (packet_index == 0 && !(data & 0x08)) {
             continue;
         }

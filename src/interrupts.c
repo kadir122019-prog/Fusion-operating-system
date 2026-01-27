@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "lapic.h"
 #include "task.h"
+#include "log.h"
 
 #define IDT_SIZE 256
 #define PIC1 0x20
@@ -44,56 +45,9 @@ static void *irq_contexts[16];
 static volatile u64 irq_counts[16];
 static void (*vector_handlers[IDT_SIZE])(void);
 
-static void u64_to_dec_local(char *out, int max, u64 value) {
-    if (max <= 1) return;
-    if (value == 0) {
-        out[0] = '0';
-        out[1] = 0;
-        return;
-    }
-    char temp[24];
-    int pos = 0;
-    while (value && pos < (int)sizeof(temp)) {
-        temp[pos++] = (char)('0' + (value % 10));
-        value /= 10;
-    }
-    int out_pos = 0;
-    while (pos > 0 && out_pos < max - 1) {
-        out[out_pos++] = temp[--pos];
-    }
-    out[out_pos] = 0;
-}
-
-static void draw_crash_overlay(const char *msg) {
-    if (gfx_width() == 0 || gfx_height() == 0) return;
-    gfx_clear(0x200000);
-    int w = (int)gfx_width();
-    int h = (int)gfx_height();
-    int box_w = w > 360 ? 360 : w - 24;
-    int box_h = 120;
-    int x = (w - box_w) / 2;
-    int y = (h - box_h) / 2;
-    gfx_draw_rect(x, y, box_w, box_h, 0x3A0A0A);
-    gfx_draw_rect(x, y, box_w, 2, 0x7A1E1E);
-    gfx_draw_text("KERNEL HALT", x + 12, y + 12, 0xF2E9E9);
-    if (msg) gfx_draw_text(msg, x + 12, y + 32, 0xF2E9E9);
-
-    char buf[32];
-    gfx_draw_text("Ticks:", x + 12, y + 56, 0xE0C9C9);
-    u64_to_dec_local(buf, (int)sizeof(buf), ticks);
-    gfx_draw_text(buf, x + 84, y + 56, 0xF2E9E9);
-    gfx_draw_text("Uptime:", x + 12, y + 74, 0xE0C9C9);
-    u64_to_dec_local(buf, (int)sizeof(buf), uptime_seconds);
-    gfx_draw_text(buf, x + 84, y + 74, 0xF2E9E9);
-    gfx_present();
-}
-
 static void fatal_halt(void) {
     asm volatile("cli");
-    draw_crash_overlay("Unhandled exception");
-    while (1) {
-        asm volatile("hlt");
-    }
+    panic(__FILE__, __LINE__, "Unhandled exception");
 }
 
 static void idt_set_gate(int n, void (*handler)(void)) {
@@ -188,8 +142,6 @@ static void isr_irq10(struct interrupt_frame *frame) { (void)frame; irq_dispatch
 __attribute__((interrupt))
 static void isr_irq11(struct interrupt_frame *frame) { (void)frame; irq_dispatch(11); }
 __attribute__((interrupt))
-static void isr_irq12(struct interrupt_frame *frame) { (void)frame; irq_dispatch(12); }
-__attribute__((interrupt))
 static void isr_irq13(struct interrupt_frame *frame) { (void)frame; irq_dispatch(13); }
 __attribute__((interrupt))
 static void isr_irq14(struct interrupt_frame *frame) { (void)frame; irq_dispatch(14); }
@@ -214,6 +166,15 @@ static void isr_keyboard(struct interrupt_frame *frame) {
     pic_send_eoi(1);
 }
 
+__attribute__((interrupt))
+static void isr_mouse(struct interrupt_frame *frame) {
+    (void)frame;
+    u8 data = inb(0x60);
+    irq_counts[12]++;
+    input_handle_mouse_byte(data);
+    pic_send_eoi(12);
+}
+
 __attribute__((naked))
 static void isr_vector_0xf0(void) {
     asm volatile(
@@ -233,11 +194,30 @@ static void isr_vector_0xf0(void) {
         "pushq %r13\n"
         "pushq %r14\n"
         "pushq %r15\n"
+        "movq %rsp, %r12\n"
         "movq %rsp, %rdi\n"
         "call task_schedule_isr\n"
         "movq %rax, %rbx\n"
         "call lapic_eoi\n"
         "movq %rbx, %rsp\n"
+        "testq %rbx, %rbx\n"
+        "jz 1f\n"
+        "movq 120(%rbx), %rax\n"
+        "movq 128(%rbx), %rcx\n"
+        "movq 136(%rbx), %r8\n"
+        "testq %rcx, %rcx\n"
+        "jz 1f\n"
+        "testq $0x2, %r8\n"
+        "jz 1f\n"
+        "movq %rax, %r9\n"
+        "shr $48, %r9\n"
+        "cmp $0xFFFF, %r9\n"
+        "je 2f\n"
+        "test %r9, %r9\n"
+        "je 2f\n"
+        "1:\n"
+        "movq %r12, %rsp\n"
+        "2:\n"
         "popq %r15\n"
         "popq %r14\n"
         "popq %r13\n"
@@ -296,7 +276,7 @@ static void interrupts_setup_idt(void) {
     idt_set_gate(41, (void (*)(void))isr_irq9);
     idt_set_gate(42, (void (*)(void))isr_irq10);
     idt_set_gate(43, (void (*)(void))isr_irq11);
-    idt_set_gate(44, (void (*)(void))isr_irq12);
+    idt_set_gate(44, (void (*)(void))isr_mouse);
     idt_set_gate(45, (void (*)(void))isr_irq13);
     idt_set_gate(46, (void (*)(void))isr_irq14);
     idt_set_gate(47, (void (*)(void))isr_irq15);

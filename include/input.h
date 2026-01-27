@@ -33,6 +33,7 @@ typedef struct {
 
 void input_init(void);
 void input_handle_scancode(u8 scancode);
+void input_handle_mouse_byte(u8 data);
 int input_poll_key(key_event_t *event);
 int input_poll_mouse(mouse_event_t *event);
 int input_is_shift_down(void);

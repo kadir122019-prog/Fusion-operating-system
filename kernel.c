@@ -12,6 +12,7 @@
 #include "fs.h"
 #include "lapic.h"
 #include "task.h"
+#include "log.h"
 
 extern u8 __kernel_end[];
 
@@ -93,7 +94,6 @@ static void ap_entry(struct limine_smp_info *info) {
     task_register_cpu(info->lapic_id, index);
     lapic_init_ap();
     interrupts_init_ap();
-    lapic_timer_setup(PIT_HZ);
     task_start_ap();
     while (1) asm volatile("hlt");
 }
@@ -117,8 +117,10 @@ void pmm_init(void) {
 }
 
 void _start(void) {
+    log_init();
+    LOG_INFO("kernel: booting");
     if (framebuffer_request.response == NULL || framebuffer_request.response->framebuffer_count < 1) {
-        while (1) asm volatile("hlt");
+        PANIC("no framebuffer available");
     }
 
     u64 hhdm_offset = 0;
@@ -177,7 +179,7 @@ void _start(void) {
 
     interrupts_init();
     lapic_init();
-    lapic_timer_setup(PIT_HZ);
+    interrupts_unmask_irq(12);
 
     task_init(cpu_count);
     task_create("desktop", desktop_task, NULL);

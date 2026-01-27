@@ -1069,7 +1069,8 @@ handle_active:
         }
 
         if (ticks == last_tick) {
-            asm volatile("hlt");
+            // If the timer IRQ stalls, keep polling input so mouse/keyboard still work.
+            asm volatile("pause");
             continue;
         }
         last_tick = ticks;

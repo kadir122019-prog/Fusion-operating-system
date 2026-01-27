@@ -71,7 +71,7 @@ void lapic_timer_setup(u32 hz) {
     u32 initial = lapic_tps / hz;
     if (initial == 0) initial = 1;
     lapic_write(LAPIC_REG_TIMER_DCR, 0x3);
-    lapic_write(LAPIC_REG_TIMER, LAPIC_TIMER_VECTOR | (1u << 17));
+    lapic_write(LAPIC_REG_TIMER, LAPIC_TIMER_VECTOR);
     lapic_write(LAPIC_REG_TIMER_ICR, initial);
 }
 
