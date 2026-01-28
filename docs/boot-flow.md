@@ -1,7 +1,7 @@
 # Boot Flow
 
 1. Limine loads the kernel (`kernel.elf`) and provides boot protocol responses.
-2. `_start` in `kernel.c` is the entry point.
+2. `_start` in `src/kernel/main.c` is the entry point.
 3. Early init:
    - Initialize serial logging
    - Read Limine requests (framebuffer, memmap, HHDM, kernel address)

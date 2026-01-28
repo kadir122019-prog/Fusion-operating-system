@@ -22,7 +22,7 @@ if ! command -v xorriso &> /dev/null; then
     exit 1
 fi
 
-curl -Lo limine.h https://raw.githubusercontent.com/limine-bootloader/limine/v8.x-binary/limine.h
+curl -Lo include/limine.h https://raw.githubusercontent.com/limine-bootloader/limine/v8.x-binary/limine.h
 
 make all
 

@@ -3,7 +3,7 @@ include config.mk
 
 # Source files
 C_SOURCES := $(filter-out $(SRCDIR)/ui/wm.c, $(shell find $(SRCDIR) -type f -name '*.c'))
-KERNEL_SOURCES := kernel.c
+KERNEL_SOURCES := $(SRCDIR)/kernel/main.c
 ALL_SOURCES := $(C_SOURCES) $(KERNEL_SOURCES)
 OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(C_SOURCES)) \
            $(patsubst %.c,$(BUILDDIR)/%.o,$(KERNEL_SOURCES))
@@ -23,7 +23,7 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILDDIR)/kernel.o: kernel.c
+$(BUILDDIR)/kernel.o: $(SRCDIR)/kernel/main.c
 	@echo "$(COLOR_BLUE)[CC]$(COLOR_RESET) $<"
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
@@ -48,9 +48,9 @@ limine:
 		curl -Lo BOOTX64.EFI https://github.com/limine-bootloader/limine/raw/v8.x-binary/BOOTX64.EFI && \
 		curl -Lo BOOTIA32.EFI https://github.com/limine-bootloader/limine/raw/v8.x-binary/BOOTIA32.EFI; \
 	fi
-	@if [ ! -f "limine.h" ]; then \
+	@if [ ! -f "$(INCDIR)/limine.h" ]; then \
 		echo "$(COLOR_YELLOW)Downloading limine.h...$(COLOR_RESET)"; \
-		curl -Lo limine.h https://raw.githubusercontent.com/limine-bootloader/limine/v8.x-binary/limine.h; \
+		curl -Lo $(INCDIR)/limine.h https://raw.githubusercontent.com/limine-bootloader/limine/v8.x-binary/limine.h; \
 	fi
 
 $(ISO): $(KERNEL) limine
@@ -59,11 +59,7 @@ $(ISO): $(KERNEL) limine
 	@mkdir -p $(ISO_ROOT)/boot $(ISO_ROOT)/boot/limine $(ISO_ROOT)/EFI/BOOT
 	@cp $(KERNEL) $(ISO_ROOT)/boot/
 	@cp $(BOOTDIR)/limine.conf $(ISO_ROOT)/boot/limine/limine.conf
-	@cp $(BOOTDIR)/limine.cfg $(ISO_ROOT)/boot/limine/limine.cfg
-	@cp $(BOOTDIR)/limine.conf $(ISO_ROOT)/boot/limine.conf
-	@cp $(BOOTDIR)/limine.cfg $(ISO_ROOT)/boot/limine.cfg
 	@cp $(BOOTDIR)/limine.conf $(ISO_ROOT)/limine.conf
-	@cp $(BOOTDIR)/limine.cfg $(ISO_ROOT)/limine.cfg
 	@cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin $(ISO_ROOT)/boot/limine/
 	@cp $(LIMINE_DIR)/BOOTX64.EFI $(ISO_ROOT)/EFI/BOOT/
@@ -84,7 +80,7 @@ clean:
 
 distclean: clean
 	@echo "$(COLOR_YELLOW)Removing Limine...$(COLOR_RESET)"
-	@rm -rf $(LIMINE_DIR) limine.h
+	@rm -rf $(LIMINE_DIR) $(INCDIR)/limine.h
 
 info:
 	@echo "$(COLOR_BLUE)=== Fusion OS Build Information ===$(COLOR_RESET)"

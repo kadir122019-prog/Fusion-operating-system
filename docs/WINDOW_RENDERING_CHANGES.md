@@ -6,7 +6,7 @@ Modified the Fusion OS terminal rendering to respect window bounds, inspired by 
 ## Changes Made
 
 ### 1. Updated `clear_screen()` Function
-**File**: `kernel.c` (lines ~208-244)
+**File**: `src/kernel/main.c` (lines ~208-244)
 
 **Before**: Cleared entire framebuffer, destroying window borders
 **After**: 
@@ -26,7 +26,7 @@ uint64_t content_height = win->height - (2 * BORDER_WIDTH) - TITLE_HEIGHT;
 ```
 
 ### 2. Updated `scroll_up()` Function  
-**File**: `kernel.c` (lines ~235-265)
+**File**: `src/kernel/main.c` (lines ~235-265)
 
 **Before**: Scrolled entire screen
 **After**:
@@ -35,7 +35,7 @@ uint64_t content_height = win->height - (2 * BORDER_WIDTH) - TITLE_HEIGHT;
 - Text wrapping respects window width
 
 ### 3. Updated `putchar_color()` Function
-**File**: `kernel.c` (lines ~278-320)
+**File**: `src/kernel/main.c` (lines ~278-320)
 
 **Before**: 
 - Cursor position was global (0 to screen width/height)
